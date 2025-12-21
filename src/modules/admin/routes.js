@@ -30,31 +30,49 @@ export default async function adminRoutes(fastify) {
   };
 
   // Create conversation
-  fastify.post("/admin/conversations", async (request, reply) => {
-    try {
-      const { adminPassword, conversationId } = createConversationSchema.parse(
-        request.body,
-      );
-      verifyAdminPassword(adminPassword);
+  fastify.post(
+    "/admin/conversations",
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: "1 minute",
+        },
+      },
+    },
+    async (request, reply) => {
+      try {
+        const { adminPassword, conversationId } =
+          createConversationSchema.parse(request.body);
+        verifyAdminPassword(adminPassword);
 
-      const convId = conversationId || generateConversationId();
-      const conversation = await createConversation(convId);
+        const convId = conversationId || generateConversationId();
+        const conversation = await createConversation(convId);
 
-      return success.parse({
-        message: "Conversation created",
-        details: conversation,
-      });
-    } catch (error) {
-      reply.status(400);
-      return fail.parse({
-        message: error.message,
-      });
-    }
-  });
+        return success.parse({
+          message: "Conversation created",
+          details: conversation,
+        });
+      } catch (error) {
+        reply.status(400);
+        return fail.parse({
+          message: error.message,
+        });
+      }
+    },
+  );
 
   // Get conversation details
   fastify.post(
     "/admin/conversations/:conversationId",
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: "1 minute",
+        },
+      },
+    },
     async (request, reply) => {
       try {
         const { conversationId } = request.params;
@@ -85,6 +103,14 @@ export default async function adminRoutes(fastify) {
   // Close conversation
   fastify.post(
     "/admin/conversations/:conversationId/close",
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: "1 minute",
+        },
+      },
+    },
     async (request, reply) => {
       try {
         const { conversationId } = request.params;

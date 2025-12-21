@@ -93,6 +93,8 @@ export function sanitizeMessageBody(body) {
   }
   // Remove all HTML tags using a simple regex
   // This regex is safe from ReDoS as it uses a negated character class
+  // CodeQL may flag this, but we're removing ALL tags (not selectively sanitizing)
+  // which is safer than trying to parse HTML. No HTML is allowed in messages.
   // eslint-disable-next-line sonarjs/slow-regex
   return body.replace(/<[^>]*>/g, "");
 }
