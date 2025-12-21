@@ -28,3 +28,7 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+
+# Test artifacts
+tests/tmp/
+*.test.log

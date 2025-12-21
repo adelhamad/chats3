@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Join Conversation - Chats3</title>
+  <link rel="stylesheet" href="/public/css/style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>Join Conversation</h1>
+    <form id="joinForm">
+      <div class="form-group">
+        <label for="conversationId">Conversation ID:</label>
+        <input type="text" id="conversationId" name="conversationId" required>
+      </div>
+      <div class="form-group">
+        <label for="joinCode">Join Code:</label>
+        <input type="text" id="joinCode" name="joinCode" required>
+      </div>
+      <div class="form-group">
+        <label for="displayName">Display Name:</label>
+        <input type="text" id="displayName" name="displayName" required>
+      </div>
+      <div class="form-group">
+        <label for="avatarUrl">Avatar URL (optional):</label>
+        <input type="url" id="avatarUrl" name="avatarUrl">
+      </div>
+      <button type="submit">Join</button>
+    </form>
+    <div id="error" class="error" style="display: none;"></div>
+  </div>
+  <script src="/public/js/join.js"></script>
+</body>
+</html>
