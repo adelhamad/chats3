@@ -1,0 +1,43 @@
+{
+  "name": "chats3",
+  "version": "1.0.0",
+  "description": "Chats3 Service",
+  "main": "src/app.js",
+  "type": "module",
+  "scripts": {
+    "start": "pm2 start src/app.js --name chats3 && pm2 logs chats3",
+    "dev": "pm2 start src/app.js --watch --name chats3 && pm2 logs",
+    "stop": "pm2 stop chats3",
+    "lint": "eslint 'src/**/*.js'",
+    "pm2": "pm2",
+    "clean": "pm2 delete all",
+    "win-lint": "eslint src/**/*.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.1.0",
+    "@fastify/env": "^5.0.3",
+    "@fastify/rate-limit": "^10.3.0",
+    "fastify": "^5.6.2",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "eslint": "^9.39.1",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-prettier": "^5.5.4",
+    "eslint-plugin-sonarjs": "^3.0.5",
+    "globals": "^16.5.0",
+    "pm2": "^6.0.13",
+    "prettier": "^3.6.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://gitlab.com/adelhamad/chats3.git"
+  },
+  "keywords": [
+    "chat",
+    "microservice"
+  ],
+  "author": "Kasroad",
+  "license": "ISC"
+}
