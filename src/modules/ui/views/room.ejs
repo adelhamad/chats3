@@ -9,17 +9,57 @@
 <body>
   <div class="chat-container">
     <div class="chat-header">
-      <h2>Conversation: <%= conversationId %></h2>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <button id="leaveButton" class="icon-button" title="Leave Conversation">←</button>
+        <h2><%= conversationId %></h2>
+      </div>
       <div class="user-info">
+        <button id="searchToggle" class="icon-button" title="Search Messages">🔍</button>
         <span id="userName"></span>
-        <span id="connectionStatus" class="status-disconnected">Disconnected</span>
+        <span id="connectionStatus" class="status-disconnected" title="Disconnected">🔴</span>
       </div>
     </div>
+
+    <div id="searchBar" class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search messages...">
+      <span id="searchCount" style="font-size: 12px; color: #7f8c8d; min-width: 60px; text-align: center;"></span>
+      <div style="display: flex; gap: 5px;">
+        <button id="searchUp" title="Previous Match" disabled>▲</button>
+        <button id="searchDown" title="Next Match" disabled>▼</button>
+        <button id="searchClose" title="Close Search">✕</button>
+      </div>
+    </div>
+    
+    <div class="video-container" id="videoContainer" style="display: none; margin-bottom: 10px; padding: 10px; background: #f8f9fa; border-bottom: 1px solid #ddd;">
+      <div style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px;">
+        <div class="video-wrapper" style="position: relative; min-width: 200px;">
+          <video id="localVideo" autoplay muted playsinline style="width: 200px; height: 150px; background: #000; border-radius: 8px; object-fit: cover;"></video>
+          <span style="position: absolute; bottom: 5px; left: 5px; color: white; font-size: 12px; background: rgba(0,0,0,0.5); padding: 2px 5px; border-radius: 4px;">You</span>
+        </div>
+        <div id="remoteVideos" style="display: flex; gap: 10px;"></div>
+      </div>
+    </div>
+
     <div class="chat-messages" id="chatMessages"></div>
+    
+    <div id="previewContainer" style="display: none;"></div>
+
     <div class="chat-input">
-      <input type="text" id="messageInput" placeholder="Type a message..." />
-      <button id="sendButton">Send</button>
-      <button id="attachButton">Attach</button>
+      <button id="attachButton" title="Attach File">📎</button>
+      <textarea id="messageInput" placeholder="Type a message..." rows="1"></textarea>
+      <button id="sendButton" title="Send Message">➤</button>
+      
+      <!-- WebRTC Controls -->
+      <div id="callControls" style="display: flex; gap: 5px;">
+        <button id="callButton" style="background-color: #2ecc71; color: white;" title="Start Call">📞</button>
+        <button id="audioBtn" style="display: none; background-color: #34495e; color: white;" title="Toggle Audio">🎤</button>
+        <button id="videoBtn" style="display: none; background-color: #34495e; color: white;" title="Toggle Video">📷</button>
+        <button id="screenBtn" style="display: none; background-color: #34495e; color: white;" title="Share Screen">🖥️</button>
+        <button id="endCallButton" style="display: none; background-color: #e74c3c; color: white;" title="End Call">❌</button>
+      </div>
+
+      <button id="recordButton" style="background-color: #e67e22; color: white;" title="Record Screen">⏺️</button>
+      <button id="stopRecordButton" style="display: none; background-color: #c0392b; color: white;" title="Stop Recording">⏹️</button>
       <input type="file" id="fileInput" style="display: none;" />
     </div>
   </div>

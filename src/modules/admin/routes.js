@@ -11,7 +11,10 @@ import {
 
 const createConversationSchema = z.object({
   adminPassword: z.string(),
-  conversationId: z.string().regex(/^[a-zA-Z0-9-_]+$/).optional(),
+  conversationId: z
+    .string()
+    .regex(/^[a-zA-Z0-9-_]+$/)
+    .optional(),
 });
 
 const closeConversationSchema = z.object({

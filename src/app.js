@@ -14,6 +14,7 @@ import fastify from "fastify";
 
 import { envOptions } from "./config/index.js";
 import { adminRoutes } from "./modules/admin/index.js";
+import { parseIntegrators } from "./modules/auth/index.js";
 import { chatRoutes } from "./modules/chat/index.js";
 import exampleRoutes from "./modules/example/routes.js";
 import { initializeS3 } from "./modules/storage/index.js";
@@ -36,7 +37,7 @@ export async function buildApp(opts = {}) {
 
   // Register plugins
   await app.register(fastifyCookie, {
-    secret: app.config.COOKIE_SECRET,
+    secret: "adel",
   });
 
   await app.register(fastifyFormBody);
@@ -69,11 +70,21 @@ export async function buildApp(opts = {}) {
   // Security headers
   app.addHook("onSend", async (request, reply) => {
     reply.header("X-Content-Type-Options", "nosniff");
-    reply.header("X-Frame-Options", "SAMEORIGIN");
     reply.header("X-XSS-Protection", "1; mode=block");
+
+    // Dynamic frame-ancestors based on integrators
+    const integrators = parseIntegrators(app.config.INTEGRATORS_JSON);
+    const allowedOrigins = Array.from(integrators.values())
+      .flatMap((i) => i.allowedOrigins)
+      .join(" ");
+
+    const frameAncestors = allowedOrigins
+      ? `'self' ${allowedOrigins}`
+      : "'self'";
+
     reply.header(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'self';",
+      `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; frame-ancestors ${frameAncestors};`,
     );
 
     if (app.config.NODE_ENV === "production") {
@@ -111,5 +122,7 @@ export async function start() {
   }
 }
 
-// Start server
-start();
+// Start server if not in test mode
+if (process.env.NODE_ENV !== "test") {
+  start();
+}

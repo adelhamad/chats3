@@ -16,6 +16,7 @@ import {
 } from "../message/index.js";
 import {
   createSession,
+  deleteSession,
   getSessionsByConversation,
 } from "../session/index.js";
 import {
@@ -53,7 +54,14 @@ const batchMessagesSchema = z.object({
 });
 
 const signalingSchema = z.object({
-  type: z.enum(["peer-join", "peer-leave", "offer", "answer", "ice-candidate", "new-message"]),
+  type: z.enum([
+    "peer-join",
+    "peer-leave",
+    "offer",
+    "answer",
+    "ice-candidate",
+    "new-message",
+  ]),
   toUserId: z.string().nullish(),
   data: z.any(),
 });
@@ -117,6 +125,24 @@ export default async function chatRoutes(fastify) {
 
       reply.setCookie("sessionId", session.sessionId, cookieOptions);
 
+      // System message: User joined
+      const joinMessage = await saveMessage({
+        conversationId,
+        senderUserId: "system",
+        senderDisplayName: "System",
+        senderRole: "system",
+        type: "system",
+        body: `${displayName} joined the conversation`,
+        clientTimestamp: new Date().toISOString(),
+      });
+
+      // Broadcast join message
+      addSignalingEvent(conversationId, {
+        type: "new-message",
+        fromUserId: "system",
+        data: joinMessage,
+      });
+
       return success.parse({
         message: "Joined conversation",
         details: {
@@ -132,6 +158,58 @@ export default async function chatRoutes(fastify) {
       });
     }
   });
+
+  // Leave conversation
+  fastify.post(
+    "/leave",
+    { preHandler: requireSession },
+    async (request, reply) => {
+      try {
+        const { conversationId, userId, displayName, sessionId } =
+          request.session;
+
+        // System message: User left
+        const leaveMessage = await saveMessage({
+          conversationId,
+          senderUserId: "system",
+          senderDisplayName: "System",
+          senderRole: "system",
+          type: "system",
+          body: `${displayName} left the conversation`,
+          clientTimestamp: new Date().toISOString(),
+        });
+
+        // Broadcast leave message
+        addSignalingEvent(conversationId, {
+          type: "new-message",
+          fromUserId: "system",
+          data: leaveMessage,
+        });
+
+        // Broadcast peer-leave event (to clean up WebRTC)
+        addSignalingEvent(conversationId, {
+          type: "peer-leave",
+          fromUserId: userId,
+          data: {},
+        });
+
+        // Delete session
+        if (request.query.keepSession !== "true") {
+          deleteSession(sessionId);
+          reply.clearCookie("sessionId");
+        }
+
+        return success.parse({
+          message: "Left conversation",
+        });
+      } catch (error) {
+        reply.status(400);
+        return fail.parse({
+          message: error.message,
+        });
+      }
+    },
+  );
 
   // Embed handshake
   fastify.post("/embed", async (request, reply) => {
@@ -319,28 +397,30 @@ export default async function chatRoutes(fastify) {
     { preHandler: requireSession },
     async (request, reply) => {
       const { conversationId, userId } = request.session;
-      request.log.info({ msg: "SSE connection attempt", userId, conversationId });
+      request.log.info({
+        msg: "SSE connection attempt",
+        userId,
+        conversationId,
+      });
 
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
+        Connection: "keep-alive",
         "X-Accel-Buffering": "no",
       });
 
       // Send initial retry interval and connected event
       reply.raw.write("retry: 3000\n\n");
-      reply.raw.write(`data: ${JSON.stringify({ type: "system", data: "connected" })}\n\n`);
+      reply.raw.write(
+        `data: ${JSON.stringify({ type: "system", data: "connected" })}\n\n`,
+      );
 
       // Send missed events if cursor is provided
       const cursor = request.query.cursor || request.headers["last-event-id"];
       if (cursor) {
-        const { events, cursor: newCursor } = pollSignalingEvents(
-          conversationId,
-          userId,
-          cursor,
-        );
-        
+        const { events } = pollSignalingEvents(conversationId, userId, cursor);
+
         for (const event of events) {
           // For historical events, we don't send ID to avoid confusing the cursor logic for now
           reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
@@ -350,8 +430,16 @@ export default async function chatRoutes(fastify) {
       // Listener for new events
       const onEvent = (event) => {
         // Filter events: broadcast or targeted to this user
-        if (!event.toUserId || event.toUserId === userId || event.fromUserId === userId) {
-          request.log.info({ msg: "SSE sending event", userId, type: event.type });
+        if (
+          !event.toUserId ||
+          event.toUserId === userId ||
+          event.fromUserId === userId
+        ) {
+          request.log.info({
+            msg: "SSE sending event",
+            userId,
+            type: event.type,
+          });
           reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
         }
       };
@@ -371,7 +459,9 @@ export default async function chatRoutes(fastify) {
       });
 
       // Keep the connection open
-      return new Promise(() => {}); 
+      return new Promise(() => {
+        // Pending promise to keep connection alive
+      });
     },
   );
 

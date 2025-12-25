@@ -2,7 +2,11 @@
 import { getSession } from "../modules/session/index.js";
 
 export async function requireSession(request, reply) {
-  const sessionId = request.cookies.sessionId;
+  // Check header first, then query param (for SSE), then cookie
+  const sessionId =
+    request.headers["x-session-id"] ||
+    request.query.sessionId ||
+    request.cookies.sessionId;
 
   if (!sessionId) {
     reply.status(401).send({
