@@ -591,7 +591,9 @@ function displayMessage(message) {
   const timestamp = new Date(
     message.serverReceivedAt || message.clientTimestamp,
   );
-  timeSpan.textContent = timestamp.toLocaleTimeString([], {
+  timeSpan.textContent = timestamp.toLocaleString([], {
+    month: "short",
+    day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -643,7 +645,7 @@ function renderImageAttachment(message, container) {
 
   const downloadLink = document.createElement("a");
   downloadLink.href = message.url;
-  downloadLink.download = message.filename || "image";
+  // downloadLink.download = message.filename || "image"; // Commented out to force new tab view
   downloadLink.target = "_blank";
   downloadLink.textContent = "⬇ Download";
   downloadLink.style.fontSize = "12px";
@@ -673,7 +675,7 @@ function renderFileAttachment(message, container) {
   link.href = safeUrl;
   link.textContent = "📎 " + (message.filename || message.body);
   link.target = "_blank";
-  link.download = message.filename || "download";
+  // link.download = message.filename || "download"; // Commented out to force new tab view
   link.style.color = "#3498db";
   link.style.textDecoration = "none";
   container.appendChild(link);
@@ -1118,6 +1120,185 @@ function generateUUID() {
     const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+}
+
+// Search functionality
+const searchToggle = document.getElementById("searchToggle");
+const searchBar = document.getElementById("searchBar");
+const searchInput = document.getElementById("searchInput");
+const searchClose = document.getElementById("searchClose");
+const searchUp = document.getElementById("searchUp");
+const searchDown = document.getElementById("searchDown");
+const searchCount = document.getElementById("searchCount");
+
+let currentMatchIndex = -1;
+let totalMatches = 0;
+let matchElements = [];
+
+if (searchToggle) {
+  searchToggle.onclick = () => {
+    searchBar.style.display = "flex";
+    searchInput.focus();
+  };
+}
+
+if (searchClose) {
+  searchClose.onclick = () => {
+    searchBar.style.display = "none";
+    searchInput.value = "";
+    clearHighlights();
+    resetSearchState();
+  };
+}
+
+if (searchUp) {
+  searchUp.onclick = () => {
+    if (totalMatches > 0) {
+      currentMatchIndex = (currentMatchIndex - 1 + totalMatches) % totalMatches;
+      scrollToMatch(currentMatchIndex);
+    }
+  };
+}
+
+if (searchDown) {
+  searchDown.onclick = () => {
+    if (totalMatches > 0) {
+      currentMatchIndex = (currentMatchIndex + 1) % totalMatches;
+      scrollToMatch(currentMatchIndex);
+    }
+  };
+}
+
+if (searchInput) {
+  searchInput.addEventListener("input", (e) => {
+    const term = e.target.value.trim().toLowerCase();
+    clearHighlights();
+    resetSearchState();
+
+    if (term) {
+      highlightMatches(term);
+    }
+  });
+
+  // Handle Enter key to go to next match
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && totalMatches > 0) {
+      e.preventDefault();
+      if (e.shiftKey) {
+        searchUp.click();
+      } else {
+        searchDown.click();
+      }
+    }
+  });
+}
+
+function resetSearchState() {
+  currentMatchIndex = -1;
+  totalMatches = 0;
+  matchElements = [];
+  updateSearchUI();
+}
+
+function updateSearchUI() {
+  if (totalMatches === 0) {
+    searchCount.textContent = "";
+    searchUp.disabled = true;
+    searchDown.disabled = true;
+  } else {
+    searchCount.textContent = `${currentMatchIndex + 1} of ${totalMatches}`;
+    searchUp.disabled = false;
+    searchDown.disabled = false;
+  }
+}
+
+function clearHighlights() {
+  const highlights = document.querySelectorAll(".highlight");
+  highlights.forEach((el) => {
+    const parent = el.parentNode;
+    parent.replaceChild(document.createTextNode(el.textContent), el);
+    parent.normalize(); // Merge text nodes
+  });
+}
+
+function highlightMatches(term) {
+  // Only target text messages to avoid breaking HTML in file attachments
+  // We can identify text messages by checking if they don't have complex children
+  // Or better, we can use a TreeWalker to find text nodes.
+
+  const messageBodies = document.querySelectorAll(".message-body");
+
+  messageBodies.forEach((body) => {
+    // Skip if it contains images or links (simple heuristic for now)
+    // A better approach would be to recursively search text nodes.
+    // For this implementation, let's use a TreeWalker to be safe.
+
+    const walker = document.createTreeWalker(
+      body,
+      NodeFilter.SHOW_TEXT,
+      null,
+      false,
+    );
+
+    let node;
+    const nodesToReplace = [];
+
+    while ((node = walker.nextNode())) {
+      if (node.textContent.toLowerCase().includes(term)) {
+        nodesToReplace.push(node);
+      }
+    }
+
+    nodesToReplace.forEach((node) => {
+      const text = node.textContent;
+      const regex = new RegExp(`(${escapeRegExp(term)})`, "gi");
+
+      // Create a wrapper span
+      const span = document.createElement("span");
+      span.innerHTML = text.replace(regex, '<span class="highlight">$1</span>');
+
+      // Replace the text node with the new span's children
+      // We need to insert all children of 'span' before 'node', then remove 'node'
+      const parent = node.parentNode;
+      while (span.firstChild) {
+        const child = span.firstChild;
+        // If it's a highlight span, add to our list of matches
+        if (child.classList && child.classList.contains("highlight")) {
+          matchElements.push(child);
+        }
+        parent.insertBefore(child, node);
+      }
+      parent.removeChild(node);
+    });
+  });
+
+  totalMatches = matchElements.length;
+  if (totalMatches > 0) {
+    // Sort matches by position in document (TreeWalker order is usually correct but let's be safe)
+    // Actually, pushing in loop order is fine for document order.
+
+    // Start at the last match (most recent message)
+    currentMatchIndex = totalMatches - 1;
+    scrollToMatch(currentMatchIndex);
+  }
+
+  updateSearchUI();
+}
+
+function scrollToMatch(index) {
+  // Remove 'current' class from all
+  matchElements.forEach((el) => el.classList.remove("current"));
+
+  const el = matchElements[index];
+  if (el) {
+    el.classList.add("current");
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  updateSearchUI();
+}
+
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // Start the application

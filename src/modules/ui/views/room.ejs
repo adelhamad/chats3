@@ -14,8 +14,19 @@
         <h2><%= conversationId %></h2>
       </div>
       <div class="user-info">
+        <button id="searchToggle" class="icon-button" title="Search Messages">🔍</button>
         <span id="userName"></span>
         <span id="connectionStatus" class="status-disconnected" title="Disconnected">🔴</span>
+      </div>
+    </div>
+
+    <div id="searchBar" class="search-bar">
+      <input type="text" id="searchInput" placeholder="Search messages...">
+      <span id="searchCount" style="font-size: 12px; color: #7f8c8d; min-width: 60px; text-align: center;"></span>
+      <div style="display: flex; gap: 5px;">
+        <button id="searchUp" title="Previous Match" disabled>▲</button>
+        <button id="searchDown" title="Next Match" disabled>▼</button>
+        <button id="searchClose" title="Close Search">✕</button>
       </div>
     </div>
     

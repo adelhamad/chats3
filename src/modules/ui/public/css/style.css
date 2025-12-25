@@ -375,3 +375,78 @@ button:hover {
   cursor: pointer;
   font-size: 12px;
 }
+
+/* Search Highlight */
+.highlight {
+  background-color: #f1c40f;
+  color: #000;
+}
+
+/* Search Bar */
+.search-bar {
+  display: none;
+  padding: 8px 15px;
+  background-color: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from { transform: translateY(-10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.search-bar input {
+  flex: 1;
+  padding: 8px 15px;
+  border: 1px solid #ddd;
+  border-radius: 20px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.search-bar input:focus {
+  border-color: #3498db;
+}
+
+.search-bar button {
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+  background: transparent;
+  color: #7f8c8d;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.search-bar button:hover:not(:disabled) {
+  background-color: #f0f2f5;
+  color: #34495e;
+}
+
+.search-bar button:disabled {
+  color: #bdc3c7;
+  cursor: default;
+}
+
+#searchClose {
+  color: #e74c3c;
+}
+
+#searchClose:hover {
+  background-color: #fcebea;
+  color: #c0392b;
+}
+
+/* Highlight Current Match */
+.highlight.current {
+  background-color: #e67e22; /* Orange for current match */
+  color: white;
+}
