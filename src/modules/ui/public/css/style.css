@@ -121,6 +121,14 @@ button:active {
 .chat-header h2 {
   font-size: 18px;
   font-weight: 600;
+  color: #f8fafc;
+}
+
+.chat-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  word-break: break-word;
 }
 
 .user-info {
@@ -153,13 +161,58 @@ button:active {
   background-color: #f6f8fb;
 }
 
+.message-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.message-row-self {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #c7d2fe;
+  color: #1f2937;
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
 .message {
-  margin-bottom: 15px;
+  max-width: 70%;
   padding: 14px 16px;
   background: #fff;
-  border-radius: 12px;
+  border-radius: 16px;
   border: 1px solid #e3e8ef;
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
+  position: relative;
+}
+
+.message-row-self .message {
+  background: #4c7ee8;
+  color: #f8fafc;
+  border-color: transparent;
+}
+
+.message-row-self .message-body,
+.message-row-self .message-sender {
+  color: #f8fafc;
+}
+
+.message-row-self .message-header {
+  color: rgba(248, 250, 252, 0.8);
+}
+
+.message-row-self .message-body a {
+  color: #e0e7ff;
 }
 
 .message-header {
@@ -214,6 +267,10 @@ button:active {
 .message-attachment-caption {
   font-size: 12px;
   color: #64748b;
+}
+
+.message-row-self .message-attachment-caption {
+  color: rgba(248, 250, 252, 0.7);
 }
 
 .chat-input {

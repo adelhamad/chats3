@@ -151,10 +151,27 @@ function displayMessage(message) {
   }
 
   const messageDiv = document.createElement("div");
-  messageDiv.className = "message";
+  messageDiv.className = "message-row";
   if (message.messageId) {
     messageDiv.setAttribute("data-message-id", message.messageId);
   }
+  if (message.senderUserId === sessionInfo?.userId) {
+    messageDiv.classList.add("message-row-self");
+  }
+
+  const avatarDiv = document.createElement("div");
+  avatarDiv.className = "message-avatar";
+  const initials = (message.senderDisplayName || "?")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+  avatarDiv.textContent = initials || "?";
+
+  const bubbleDiv = document.createElement("div");
+  bubbleDiv.className = "message";
 
   const headerDiv = document.createElement("div");
   headerDiv.className = "message-header";
@@ -176,7 +193,6 @@ function displayMessage(message) {
   bodyDiv.className = "message-body";
 
   if (message.type === "file") {
-    messageDiv.classList.add("message-file");
     const link = document.createElement("a");
 
     // Validate URL protocol to prevent XSS
@@ -187,9 +203,7 @@ function displayMessage(message) {
         const url = new URL(message.url, window.location.origin);
         if (["http:", "https:"].includes(url.protocol)) {
           safeUrl = url.toString();
-          const previewCandidate = new URL(url.toString());
-          previewCandidate.searchParams.delete("download");
-          previewUrl = previewCandidate.toString();
+          previewUrl = safeUrl;
         }
       }
     } catch (e) {
@@ -236,8 +250,11 @@ function displayMessage(message) {
     bodyDiv.textContent = message.body;
   }
 
-  messageDiv.appendChild(headerDiv);
-  messageDiv.appendChild(bodyDiv);
+  bubbleDiv.appendChild(headerDiv);
+  bubbleDiv.appendChild(bodyDiv);
+
+  messageDiv.appendChild(avatarDiv);
+  messageDiv.appendChild(bubbleDiv);
 
   messagesDiv.appendChild(messageDiv);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
