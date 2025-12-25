@@ -15,11 +15,24 @@
         <span id="connectionStatus" class="status-disconnected">Disconnected</span>
       </div>
     </div>
+    
+    <div class="video-container" id="videoContainer" style="display: none; margin-bottom: 10px; padding: 10px; background: #f8f9fa; border-bottom: 1px solid #ddd;">
+      <div style="display: flex; gap: 10px; overflow-x: auto; padding-bottom: 5px;">
+        <div class="video-wrapper" style="position: relative; min-width: 200px;">
+          <video id="localVideo" autoplay muted playsinline style="width: 200px; height: 150px; background: #000; border-radius: 8px; object-fit: cover;"></video>
+          <span style="position: absolute; bottom: 5px; left: 5px; color: white; font-size: 12px; background: rgba(0,0,0,0.5); padding: 2px 5px; border-radius: 4px;">You</span>
+        </div>
+        <div id="remoteVideos" style="display: flex; gap: 10px;"></div>
+      </div>
+    </div>
+
     <div class="chat-messages" id="chatMessages"></div>
     <div class="chat-input">
       <input type="text" id="messageInput" placeholder="Type a message..." />
       <button id="sendButton">Send</button>
       <button id="attachButton">Attach</button>
+      <button id="callButton" style="background-color: #2ecc71;" title="Start Video Call">📞</button>
+      <button id="endCallButton" style="display: none; background-color: #e74c3c;" title="End Call">❌</button>
       <input type="file" id="fileInput" style="display: none;" />
     </div>
   </div>
