@@ -176,15 +176,20 @@ function displayMessage(message) {
   bodyDiv.className = "message-body";
 
   if (message.type === "file") {
+    messageDiv.classList.add("message-file");
     const link = document.createElement("a");
-    
+
     // Validate URL protocol to prevent XSS
     let safeUrl = "#";
+    let previewUrl = "";
     try {
       if (message.url) {
         const url = new URL(message.url, window.location.origin);
-        if (['http:', 'https:'].includes(url.protocol)) {
-          safeUrl = message.url;
+        if (["http:", "https:"].includes(url.protocol)) {
+          safeUrl = url.toString();
+          const previewCandidate = new URL(url.toString());
+          previewCandidate.searchParams.delete("download");
+          previewUrl = previewCandidate.toString();
         }
       }
     } catch (e) {
@@ -195,7 +200,38 @@ function displayMessage(message) {
     link.textContent = message.filename || message.body;
     link.target = "_blank";
     link.download = message.filename || "download";
-    bodyDiv.appendChild(link);
+    link.rel = "noopener noreferrer";
+
+    const attachmentWrapper = document.createElement("div");
+    attachmentWrapper.className = "message-attachment";
+
+    if (
+      message.mimetype &&
+      message.mimetype.startsWith("image/") &&
+      previewUrl
+    ) {
+      const preview = document.createElement("img");
+      preview.className = "message-attachment-preview";
+      preview.src = previewUrl;
+      preview.alt = message.filename || "Image attachment";
+      preview.loading = "lazy";
+      attachmentWrapper.appendChild(preview);
+    }
+
+    const attachmentMeta = document.createElement("div");
+    attachmentMeta.className = "message-attachment-meta";
+
+    attachmentMeta.appendChild(link);
+
+    if (message.mimetype) {
+      const caption = document.createElement("span");
+      caption.className = "message-attachment-caption";
+      caption.textContent = message.mimetype.toUpperCase();
+      attachmentMeta.appendChild(caption);
+    }
+
+    attachmentWrapper.appendChild(attachmentMeta);
+    bodyDiv.appendChild(attachmentWrapper);
   } else {
     bodyDiv.textContent = message.body;
   }
