@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin - Create Conversation</title>
+  <link rel="stylesheet" href="/public/css/style.css">
+  <style>
+    .admin-container {
+      max-width: 500px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .result {
+      margin-top: 20px;
+      padding: 10px;
+      border-radius: 4px;
+      display: none;
+    }
+    .result.success {
+      background: #d4edda;
+      color: #155724;
+    }
+    .result.error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+  </style>
+</head>
+<body>
+  <div class="admin-container">
+    <h2>Create Conversation</h2>
+    <form id="createConversationForm">
+      <div class="form-group">
+        <label for="conversationId">Conversation ID</label>
+        <input type="text" id="conversationId" name="conversationId" required placeholder="e.g., my-chat-room">
+      </div>
+      <div class="form-group">
+        <label for="adminPassword">Admin Password</label>
+        <input type="password" id="adminPassword" name="adminPassword" required>
+      </div>
+      <button type="submit">Create</button>
+    </form>
+    <div id="result" class="result"></div>
+  </div>
+  <script src="/public/js/admin.js"></script>
+</body>
+</html>

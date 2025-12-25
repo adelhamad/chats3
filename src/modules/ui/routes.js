@@ -11,6 +11,11 @@ export default async function viewRoutes(fastify) {
     return reply.view("room.ejs", { conversationId });
   });
 
+  // Admin page
+  fastify.get("/admin", async (request, reply) => {
+    return reply.view("admin.ejs");
+  });
+
   // Redirect root to join
   fastify.get("/", async (request, reply) => {
     return reply.redirect("/join");

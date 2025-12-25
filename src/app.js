@@ -17,7 +17,7 @@ import { adminRoutes } from "./modules/admin/index.js";
 import { chatRoutes } from "./modules/chat/index.js";
 import exampleRoutes from "./modules/example/routes.js";
 import { initializeS3 } from "./modules/storage/index.js";
-import { viewRoutes } from "./modules/views/index.js";
+import { viewRoutes } from "./modules/ui/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -54,7 +54,7 @@ export async function buildApp(opts = {}) {
 
   // Static files (for serving client-side assets)
   await app.register(fastifyStatic, {
-    root: path.join(__dirname, "../public"),
+    root: path.join(__dirname, "modules/ui/public"),
     prefix: "/public/",
   });
 
@@ -63,7 +63,7 @@ export async function buildApp(opts = {}) {
     engine: {
       ejs,
     },
-    root: path.join(__dirname, "../views"),
+    root: path.join(__dirname, "modules/ui/views"),
   });
 
   // Security headers

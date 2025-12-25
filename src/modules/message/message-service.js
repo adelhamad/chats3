@@ -29,7 +29,7 @@ export async function saveMessage(messageData) {
     senderDisplayName,
     senderRole,
     type,
-    body,
+    body: sanitizeMessageBody(body),
     clientTimestamp,
     serverReceivedAt: new Date().toISOString(),
     // Pass through attachment fields if present
@@ -68,7 +68,7 @@ export async function saveMessages(messages) {
       senderDisplayName: msgData.senderDisplayName,
       senderRole: msgData.senderRole,
       type: msgData.type || "text",
-      body: msgData.body,
+      body: sanitizeMessageBody(msgData.body),
       clientTimestamp: msgData.clientTimestamp,
       serverReceivedAt: new Date().toISOString(),
     };

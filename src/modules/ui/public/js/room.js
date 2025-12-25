@@ -177,7 +177,21 @@ function displayMessage(message) {
 
   if (message.type === "file") {
     const link = document.createElement("a");
-    link.href = message.url || "#";
+    
+    // Validate URL protocol to prevent XSS
+    let safeUrl = "#";
+    try {
+      if (message.url) {
+        const url = new URL(message.url, window.location.origin);
+        if (['http:', 'https:'].includes(url.protocol)) {
+          safeUrl = message.url;
+        }
+      }
+    } catch (e) {
+      console.error("Invalid URL:", message.url);
+    }
+
+    link.href = safeUrl;
     link.textContent = message.filename || message.body;
     link.target = "_blank";
     link.download = message.filename || "download";
