@@ -4,14 +4,23 @@ let sessionInfo = null;
 let peerConnections = new Map(); // userId -> RTCPeerConnection
 let dataChannels = new Map(); // userId -> RTCDataChannel
 let messageOutbox = [];
-let localStream = null;
+let localStream = null; // Camera + Mic
+let screenStream = null; // Screen share stream
+let isScreenSharing = false;
+let selectedFile = null;
 
 const messagesDiv = document.getElementById("chatMessages");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
 const attachButton = document.getElementById("attachButton");
+
+// WebRTC Controls
 const callButton = document.getElementById("callButton");
+const audioBtn = document.getElementById("audioBtn");
+const videoBtn = document.getElementById("videoBtn");
+const screenBtn = document.getElementById("screenBtn");
 const endCallButton = document.getElementById("endCallButton");
+
 const recordButton = document.getElementById("recordButton");
 const stopRecordButton = document.getElementById("stopRecordButton");
 const videoContainer = document.getElementById("videoContainer");
@@ -20,27 +29,36 @@ const remoteVideosDiv = document.getElementById("remoteVideos");
 const fileInput = document.getElementById("fileInput");
 const statusSpan = document.getElementById("connectionStatus");
 const userNameSpan = document.getElementById("userName");
+const previewContainer = document.getElementById("previewContainer");
+const leaveButton = document.getElementById("leaveButton");
 
 // Initialize
 async function init() {
   try {
     // Get session info
-    const sessionResponse = await fetch("/api/v1/session", {
-      credentials: "include",
-    });
+    const sessionResponse = await fetch("/api/v1/session");
     const sessionData = await sessionResponse.json();
 
     if (!sessionData.success) {
       alert("No valid session. Please join again.");
-      window.location.href = "/join";
+      window.location.href = `/join?conversationId=${window.CONVERSATION_ID}`;
       return;
     }
 
     sessionInfo = sessionData.details;
+
+    // Verify session matches current conversation
+    if (sessionInfo.conversationId !== window.CONVERSATION_ID) {
+      console.warn("Session conversation mismatch. Redirecting to join.");
+      window.location.href = `/join?conversationId=${window.CONVERSATION_ID}`;
+      return;
+    }
+
     userNameSpan.textContent = sessionInfo.displayName;
 
     // Load message history
     await loadMessageHistory();
+    scrollToBottom();
 
     // Start signaling SSE
     setupSignalingSSE();
@@ -64,21 +82,75 @@ async function init() {
       fileInput.click();
     });
 
-    fileInput.addEventListener("change", handleFileUpload);
+    fileInput.addEventListener("change", handleFileSelect);
 
     // Set up call buttons
     callButton.addEventListener("click", startCall);
+    audioBtn.addEventListener("click", toggleAudio);
+    videoBtn.addEventListener("click", toggleVideo);
+    screenBtn.addEventListener("click", toggleScreenShare);
     endCallButton.addEventListener("click", endCall);
 
     // Set up recording buttons
     recordButton.addEventListener("click", startRecording);
     stopRecordButton.addEventListener("click", stopRecording);
 
-    // Set up beforeunload flush
-    window.addEventListener("beforeunload", flushOutbox);
+    // Set up leave button
+    leaveButton.addEventListener("click", leaveConversation);
+
+    // Set up beforeunload flush and leave
+    window.addEventListener("beforeunload", handleUnload);
+
+    // Handle paste events for images
+    document.addEventListener("paste", handlePaste);
   } catch (error) {
     console.error("Initialization error:", error);
     alert("Failed to initialize chat");
+  }
+}
+
+// Leave conversation
+async function leaveConversation() {
+  if (confirm("Are you sure you want to leave the conversation?")) {
+    try {
+      await fetch("/api/v1/leave", {
+        method: "POST",
+      });
+
+      window.location.href = `/join?conversationId=${window.CONVERSATION_ID}`;
+    } catch (error) {
+      console.error("Error leaving conversation:", error);
+      window.location.href = `/join?conversationId=${window.CONVERSATION_ID}`;
+    }
+  }
+}
+
+// Handle unload (flush outbox and leave)
+function handleUnload() {
+  flushOutbox();
+  // Send leave request via beacon
+  // Note: Beacon doesn't support custom headers easily, but we still have the cookie as fallback
+  // If we rely purely on headers, beacon might fail for auth.
+  // However, for "leave on tab close", it's best effort.
+  navigator.sendBeacon("/api/v1/leave");
+}
+
+// Scroll to bottom
+function scrollToBottom() {
+  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+// Handle paste
+function handlePaste(event) {
+  const items = (event.clipboardData || event.originalEvent.clipboardData)
+    .items;
+  for (const item of items) {
+    if (item.kind === "file" && item.type.startsWith("image/")) {
+      const file = item.getAsFile();
+      handleFileSelect({ target: { files: [file] } });
+      event.preventDefault();
+      return;
+    }
   }
 }
 
@@ -91,7 +163,12 @@ async function startCall() {
     });
     localVideo.srcObject = localStream;
     videoContainer.style.display = "block";
+
+    // Update UI
     callButton.style.display = "none";
+    audioBtn.style.display = "inline-block";
+    videoBtn.style.display = "inline-block";
+    screenBtn.style.display = "inline-block";
     endCallButton.style.display = "inline-block";
 
     // Add tracks to all existing peer connections
@@ -111,6 +188,113 @@ async function startCall() {
   }
 }
 
+// Toggle Audio
+function toggleAudio() {
+  if (localStream) {
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !audioTrack.enabled;
+      audioBtn.textContent = audioTrack.enabled ? "🎤" : "🎤🚫";
+      audioBtn.style.backgroundColor = audioTrack.enabled
+        ? "#34495e"
+        : "#95a5a6";
+    }
+  }
+}
+
+// Toggle Video
+function toggleVideo() {
+  if (isScreenSharing) {
+    stopScreenShare();
+    return;
+  }
+
+  if (localStream) {
+    const videoTrack = localStream.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
+      videoBtn.textContent = videoTrack.enabled ? "📷" : "📷🚫";
+      videoBtn.style.backgroundColor = videoTrack.enabled
+        ? "#34495e"
+        : "#95a5a6";
+    }
+  }
+}
+
+// Toggle Screen Share
+async function toggleScreenShare() {
+  if (isScreenSharing) {
+    stopScreenShare();
+  } else {
+    await startScreenShare();
+  }
+}
+
+async function startScreenShare() {
+  try {
+    screenStream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+    });
+    const screenTrack = screenStream.getVideoTracks()[0];
+
+    // Handle user stopping via browser UI
+    screenTrack.onended = () => {
+      stopScreenShare();
+    };
+
+    // Replace track in all peer connections
+    for (const pc of peerConnections.values()) {
+      const sender = pc
+        .getSenders()
+        .find((s) => s.track && s.track.kind === "video");
+      if (sender) {
+        sender.replaceTrack(screenTrack);
+      }
+    }
+
+    // Update local preview
+    localVideo.srcObject = screenStream;
+
+    isScreenSharing = true;
+    screenBtn.style.backgroundColor = "#2ecc71"; // Green for active
+  } catch (error) {
+    console.error("Error starting screen share:", error);
+  }
+}
+
+function stopScreenShare() {
+  if (!isScreenSharing) {
+    return;
+  }
+
+  // Stop screen stream tracks
+  if (screenStream) {
+    screenStream.getTracks().forEach((track) => track.stop());
+    screenStream = null;
+  }
+
+  // Revert to camera track
+  if (localStream) {
+    const cameraTrack = localStream.getVideoTracks()[0];
+
+    // Replace track in all peer connections
+    for (const pc of peerConnections.values()) {
+      const sender = pc
+        .getSenders()
+        .find((s) => s.track && s.track.kind === "video");
+      if (sender) {
+        sender.replaceTrack(cameraTrack);
+      }
+    }
+
+    // Update local preview
+    localVideo.srcObject = localStream;
+  }
+
+  isScreenSharing = false;
+  screenBtn.style.backgroundColor = "#34495e"; // Reset color
+}
+
 // End Video Call
 function endCall() {
   if (localStream) {
@@ -118,9 +302,18 @@ function endCall() {
     localStream = null;
   }
 
+  if (screenStream) {
+    screenStream.getTracks().forEach((track) => track.stop());
+    screenStream = null;
+  }
+
   localVideo.srcObject = null;
   videoContainer.style.display = "none";
+
   callButton.style.display = "inline-block";
+  audioBtn.style.display = "none";
+  videoBtn.style.display = "none";
+  screenBtn.style.display = "none";
   endCallButton.style.display = "none";
 
   // Remove tracks from peer connections (optional, but good practice)
@@ -197,70 +390,87 @@ function stopRecording() {
   }
 }
 
-// Handle file upload
-async function handleFileUpload(event) {
-  const file = event.target.files[0];
+// Handle file selection
+function handleFileSelect(event) {
+  const file = event.target.files ? event.target.files[0] : null;
   if (!file) {
     return;
   }
 
-  // Reset input
-  fileInput.value = "";
+  selectedFile = file;
+  if (fileInput) {
+    fileInput.value = "";
+  } // Reset input so same file can be selected again if needed
 
+  // Show preview
+  previewContainer.innerHTML = "";
+  previewContainer.style.display = "flex";
+
+  const previewItem = document.createElement("div");
+  previewItem.className = "preview-item";
+
+  if (file.type.startsWith("image/")) {
+    const img = document.createElement("img");
+    img.src = URL.createObjectURL(file);
+    img.onload = () => {
+      // URL.revokeObjectURL(img.src); // Keep it for now, revoking might break preview if element is moved
+    };
+    img.onerror = () => {
+      img.style.display = "none";
+      const errorText = document.createElement("div");
+      errorText.textContent = "Image Error";
+      errorText.style.fontSize = "10px";
+      errorText.style.color = "red";
+      previewItem.appendChild(errorText);
+    };
+    previewItem.appendChild(img);
+  } else {
+    const div = document.createElement("div");
+    div.textContent = "File: " + file.name;
+    div.style.padding = "10px";
+    div.style.fontSize = "12px";
+    div.style.display = "flex";
+    div.style.alignItems = "center";
+    div.style.justifyContent = "center";
+    div.style.height = "100%";
+    previewItem.appendChild(div);
+  }
+
+  const removeBtn = document.createElement("div");
+  removeBtn.className = "preview-remove";
+  removeBtn.textContent = "✕";
+  removeBtn.onclick = () => {
+    selectedFile = null;
+    previewContainer.innerHTML = "";
+    previewContainer.style.display = "none";
+  };
+
+  previewItem.appendChild(removeBtn);
+  previewContainer.appendChild(previewItem);
+}
+
+// Upload file
+async function uploadFile(file) {
   const formData = new FormData();
   formData.append("file", file);
 
-  try {
-    const response = await fetch("/api/v1/attachments", {
-      method: "POST",
-      body: formData,
-      credentials: "include",
-    });
+  const response = await fetch("/api/v1/attachments", {
+    method: "POST",
+    body: formData,
+  });
 
-    const data = await response.json();
-    if (!data.success) {
-      throw new Error(data.message || "Upload failed");
-    }
-
-    const attachment = data.details;
-
-    // Send message with attachment
-    const messageId = generateUUID();
-    const message = {
-      messageId,
-      type: "file",
-      body: `[File] ${attachment.originalFilename}`,
-      clientTimestamp: new Date().toISOString(),
-      attachmentId: attachment.attachmentId,
-      filename: attachment.originalFilename,
-      mimetype: attachment.mimeType,
-      url: `/api/v1/attachments/${attachment.attachmentId}?download=true`,
-    };
-
-    // Display immediately
-    displayMessage({
-      ...message,
-      senderDisplayName: sessionInfo.displayName,
-      senderUserId: sessionInfo.userId,
-    });
-
-    // Send via WebRTC
-    broadcastViaDataChannel(message);
-
-    // Save to backend (as a message)
-    await saveMessageToBackend(message);
-  } catch (error) {
-    console.error("Upload error:", error);
-    alert("Failed to upload file: " + error.message);
+  const data = await response.json();
+  if (!data.success) {
+    throw new Error(data.message || "Upload failed");
   }
+
+  return data.details;
 }
 
 // Load message history
 async function loadMessageHistory() {
   try {
-    const response = await fetch("/api/v1/messages", {
-      credentials: "include",
-    });
+    const response = await fetch("/api/v1/messages");
     const data = await response.json();
 
     if (data.success && data.details) {
@@ -269,6 +479,28 @@ async function loadMessageHistory() {
   } catch (error) {
     console.error("Failed to load history:", error);
   }
+}
+
+function getAvatar(name) {
+  const initials = name
+    ? name
+        .split(" ")
+        .map((n) => n[0])
+        .join("")
+        .toUpperCase()
+        .substring(0, 2)
+    : "?";
+  const div = document.createElement("div");
+  div.className = "message-avatar";
+  div.textContent = initials;
+  // Random background color based on name
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+  div.style.backgroundColor = "#" + "00000".substring(0, 6 - c.length) + c;
+  return div;
 }
 
 // Display a message
@@ -281,8 +513,40 @@ function displayMessage(message) {
     return;
   }
 
+  // Check if message is own (by userId OR displayName for better UX across sessions)
+  const isOwn =
+    message.senderUserId === sessionInfo.userId ||
+    (message.senderDisplayName &&
+      message.senderDisplayName === sessionInfo.displayName);
+
+  const isSystem = message.type === "system";
+
+  const rowDiv = document.createElement("div");
+  let rowClass = "message-row";
+  if (isSystem) {
+    rowClass += " system";
+  } else if (isOwn) {
+    rowClass += " own";
+  } else {
+    rowClass += " other";
+  }
+  rowDiv.className = rowClass;
+
+  if (!isOwn && !isSystem) {
+    rowDiv.appendChild(getAvatar(message.senderDisplayName || "User"));
+  }
+
   const messageDiv = document.createElement("div");
-  messageDiv.className = "message";
+  let msgClass = "message";
+  if (isSystem) {
+    msgClass += " system";
+  } else if (isOwn) {
+    msgClass += " own";
+  } else {
+    msgClass += " other";
+  }
+  messageDiv.className = msgClass;
+
   if (message.messageId) {
     messageDiv.setAttribute("data-message-id", message.messageId);
   }
@@ -298,7 +562,10 @@ function displayMessage(message) {
   const timestamp = new Date(
     message.serverReceivedAt || message.clientTimestamp,
   );
-  timeSpan.textContent = timestamp.toLocaleTimeString();
+  timeSpan.textContent = timestamp.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
   headerDiv.appendChild(senderSpan);
   headerDiv.appendChild(timeSpan);
@@ -306,88 +573,154 @@ function displayMessage(message) {
   const bodyDiv = document.createElement("div");
   bodyDiv.className = "message-body";
 
-  if (message.type === "file") {
-    const link = document.createElement("a");
-
-    // Validate URL protocol to prevent XSS
-    let safeUrl = "#";
-    try {
-      if (message.url) {
-        const url = new URL(message.url, window.location.origin);
-        if (["http:", "https:"].includes(url.protocol)) {
-          safeUrl = message.url;
-        }
-      }
-    } catch (e) {
-      console.error("Invalid URL:", message.url);
-    }
-
-    link.href = safeUrl;
-    link.textContent = message.filename || message.body;
-    link.target = "_blank";
-    link.download = message.filename || "download";
-    bodyDiv.appendChild(link);
-  } else {
-    bodyDiv.textContent = message.body;
-  }
+  renderMessageBody(message, bodyDiv);
 
   messageDiv.appendChild(headerDiv);
   messageDiv.appendChild(bodyDiv);
 
-  messagesDiv.appendChild(messageDiv);
-  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+  rowDiv.appendChild(messageDiv);
+
+  messagesDiv.appendChild(rowDiv);
+  scrollToBottom();
+}
+
+function renderMessageBody(message, bodyDiv) {
+  if (message.type === "file") {
+    if (message.mimetype && message.mimetype.startsWith("image/")) {
+      renderImageAttachment(message, bodyDiv);
+    } else {
+      renderFileAttachment(message, bodyDiv);
+    }
+  } else {
+    bodyDiv.textContent = message.body;
+  }
+}
+
+function renderImageAttachment(message, container) {
+  const wrapper = document.createElement("div");
+  wrapper.style.display = "flex";
+  wrapper.style.flexDirection = "column";
+  wrapper.style.gap = "5px";
+
+  const img = document.createElement("img");
+  img.src = message.url;
+  img.style.maxWidth = "200px";
+  img.style.maxHeight = "200px";
+  img.style.borderRadius = "8px";
+  img.style.cursor = "pointer";
+  img.style.objectFit = "cover";
+  img.onclick = () => window.open(message.url, "_blank");
+  img.onload = scrollToBottom;
+
+  const downloadLink = document.createElement("a");
+  downloadLink.href = message.url;
+  downloadLink.download = message.filename || "image";
+  downloadLink.textContent = "⬇ Download";
+  downloadLink.style.fontSize = "12px";
+  downloadLink.style.color = "#5682a3";
+  downloadLink.style.textDecoration = "none";
+  downloadLink.style.marginTop = "4px";
+
+  wrapper.appendChild(img);
+  wrapper.appendChild(downloadLink);
+  container.appendChild(wrapper);
+}
+
+function renderFileAttachment(message, container) {
+  const link = document.createElement("a");
+  let safeUrl = "#";
+  try {
+    if (message.url) {
+      const url = new URL(message.url, window.location.origin);
+      if (["http:", "https:"].includes(url.protocol)) {
+        safeUrl = message.url;
+      }
+    }
+  } catch (error) {
+    console.error("Invalid URL:", message.url, error);
+  }
+
+  link.href = safeUrl;
+  link.textContent = "📎 " + (message.filename || message.body);
+  link.target = "_blank";
+  link.download = message.filename || "download";
+  link.style.color = "#3498db";
+  link.style.textDecoration = "none";
+  container.appendChild(link);
 }
 
 // Send message
 async function sendMessage() {
   const body = messageInput.value.trim();
-  if (!body) {
+
+  if (!body && !selectedFile) {
     return;
   }
 
   const messageId = generateUUID();
-  const message = {
+  let message = {
     messageId,
-    type: "text",
-    body,
     clientTimestamp: new Date().toISOString(),
-  };
-
-  // Display immediately
-  displayMessage({
-    ...message,
     senderDisplayName: sessionInfo.displayName,
     senderUserId: sessionInfo.userId,
-  });
+  };
 
-  // Clear input
-  messageInput.value = "";
-
-  // Send via WebRTC to all peers
-  broadcastViaDataChannel(message);
-
-  // Add to outbox
-  messageOutbox.push(message);
-
-  // Save to backend
   try {
+    if (selectedFile) {
+      const attachment = await uploadFile(selectedFile);
+      message = {
+        ...message,
+        type: "file",
+        body: body || `[File] ${attachment.originalFilename}`,
+        attachmentId: attachment.attachmentId,
+        filename: attachment.originalFilename,
+        mimetype: attachment.mimeType,
+        url: `/api/v1/attachments/${attachment.attachmentId}?download=true`,
+      };
+
+      // Clear selection
+      selectedFile = null;
+      previewContainer.innerHTML = "";
+      previewContainer.style.display = "none";
+    } else {
+      message = {
+        ...message,
+        type: "text",
+        body,
+      };
+    }
+
+    // Display immediately
+    displayMessage(message);
+
+    // Clear input
+    messageInput.value = "";
+
+    // Send via WebRTC to all peers
+    broadcastViaDataChannel(message);
+
+    // Add to outbox
+    messageOutbox.push(message);
+
+    // Save to backend
     await saveMessageToBackend(message);
     // Remove from outbox on success
     messageOutbox = messageOutbox.filter((m) => m.messageId !== messageId);
   } catch (error) {
-    console.error("Failed to save message:", error);
-    // Keep in outbox for retry
+    console.error("Failed to send message:", error);
+    alert("Failed to send message: " + error.message);
   }
 }
 
 // Save message to backend
 async function saveMessageToBackend(message) {
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
   const response = await fetch("/api/v1/messages", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    credentials: "include",
+    headers,
     body: JSON.stringify(message),
   });
 
@@ -412,9 +745,10 @@ function flushOutbox() {
 // Signaling SSE
 function setupSignalingSSE() {
   console.log("Setting up SSE connection...");
-  const eventSource = new EventSource("/api/v1/signaling", {
-    withCredentials: true,
-  });
+
+  const url = "/api/v1/signaling";
+
+  const eventSource = new EventSource(url);
 
   eventSource.onopen = () => {
     console.log("SSE connection opened");
@@ -703,12 +1037,13 @@ function broadcastViaDataChannel(message) {
 
 // Send signaling event
 async function sendSignalingEvent(type, toUserId, data) {
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
   await fetch("/api/v1/signaling", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    credentials: "include",
+    headers,
     body: JSON.stringify({
       type,
       toUserId,

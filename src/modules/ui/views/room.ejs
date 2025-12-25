@@ -9,7 +9,10 @@
 <body>
   <div class="chat-container">
     <div class="chat-header">
-      <h2>Conversation: <%= conversationId %></h2>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <button id="leaveButton" class="icon-button" title="Leave Conversation">←</button>
+        <h2>Conversation: <%= conversationId %></h2>
+      </div>
       <div class="user-info">
         <span id="userName"></span>
         <span id="connectionStatus" class="status-disconnected">Disconnected</span>
@@ -27,14 +30,25 @@
     </div>
 
     <div class="chat-messages" id="chatMessages"></div>
+    
+    <div id="previewContainer" style="display: none;"></div>
+
     <div class="chat-input">
+      <button id="attachButton" title="Attach File">📎</button>
       <input type="text" id="messageInput" placeholder="Type a message..." />
-      <button id="sendButton">Send</button>
-      <button id="attachButton">Attach</button>
-      <button id="callButton" style="background-color: #2ecc71;" title="Start Video Call">📞</button>
-      <button id="endCallButton" style="display: none; background-color: #e74c3c;" title="End Call">❌</button>
-      <button id="recordButton" style="background-color: #e67e22;" title="Record Screen">⏺️</button>
-      <button id="stopRecordButton" style="display: none; background-color: #c0392b;" title="Stop Recording">⏹️</button>
+      <button id="sendButton" title="Send Message">➤</button>
+      
+      <!-- WebRTC Controls -->
+      <div id="callControls" style="display: flex; gap: 5px;">
+        <button id="callButton" style="background-color: #2ecc71; color: white;" title="Start Call">📞</button>
+        <button id="audioBtn" style="display: none; background-color: #34495e; color: white;" title="Toggle Audio">🎤</button>
+        <button id="videoBtn" style="display: none; background-color: #34495e; color: white;" title="Toggle Video">📷</button>
+        <button id="screenBtn" style="display: none; background-color: #34495e; color: white;" title="Share Screen">🖥️</button>
+        <button id="endCallButton" style="display: none; background-color: #e74c3c; color: white;" title="End Call">❌</button>
+      </div>
+
+      <button id="recordButton" style="background-color: #e67e22; color: white;" title="Record Screen">⏺️</button>
+      <button id="stopRecordButton" style="display: none; background-color: #c0392b; color: white;" title="Stop Recording">⏹️</button>
       <input type="file" id="fileInput" style="display: none;" />
     </div>
   </div>

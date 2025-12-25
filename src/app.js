@@ -73,7 +73,7 @@ export async function buildApp(opts = {}) {
     reply.header("X-XSS-Protection", "1; mode=block");
     reply.header(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'self';",
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; frame-ancestors 'self';",
     );
 
     if (app.config.NODE_ENV === "production") {
