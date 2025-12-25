@@ -152,6 +152,13 @@ function displayMessage(message) {
 
   const messageDiv = document.createElement("div");
   messageDiv.className = "message";
+  if (
+    sessionInfo &&
+    message.senderUserId &&
+    message.senderUserId === sessionInfo.userId
+  ) {
+    messageDiv.classList.add("message-own");
+  }
   if (message.messageId) {
     messageDiv.setAttribute("data-message-id", message.messageId);
   }
@@ -176,14 +183,17 @@ function displayMessage(message) {
   bodyDiv.className = "message-body";
 
   if (message.type === "file") {
+    const attachmentWrapper = document.createElement("div");
+    attachmentWrapper.className = "message-attachment";
+
     const link = document.createElement("a");
-    
+
     // Validate URL protocol to prevent XSS
     let safeUrl = "#";
     try {
       if (message.url) {
         const url = new URL(message.url, window.location.origin);
-        if (['http:', 'https:'].includes(url.protocol)) {
+        if (["http:", "https:"].includes(url.protocol)) {
           safeUrl = message.url;
         }
       }
@@ -191,11 +201,27 @@ function displayMessage(message) {
       console.error("Invalid URL:", message.url);
     }
 
+    if (
+      safeUrl !== "#" &&
+      message.mimetype &&
+      message.mimetype.startsWith("image/")
+    ) {
+      const preview = document.createElement("img");
+      preview.className = "attachment-preview";
+      preview.src = safeUrl;
+      preview.alt = message.filename || "Attachment preview";
+      preview.loading = "lazy";
+      attachmentWrapper.appendChild(preview);
+    }
+
     link.href = safeUrl;
+    link.className = "attachment-link";
     link.textContent = message.filename || message.body;
     link.target = "_blank";
+    link.rel = "noopener";
     link.download = message.filename || "download";
-    bodyDiv.appendChild(link);
+    attachmentWrapper.appendChild(link);
+    bodyDiv.appendChild(attachmentWrapper);
   } else {
     bodyDiv.textContent = message.body;
   }
