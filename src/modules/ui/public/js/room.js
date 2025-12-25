@@ -12,6 +12,8 @@ const sendButton = document.getElementById("sendButton");
 const attachButton = document.getElementById("attachButton");
 const callButton = document.getElementById("callButton");
 const endCallButton = document.getElementById("endCallButton");
+const recordButton = document.getElementById("recordButton");
+const stopRecordButton = document.getElementById("stopRecordButton");
 const videoContainer = document.getElementById("videoContainer");
 const localVideo = document.getElementById("localVideo");
 const remoteVideosDiv = document.getElementById("remoteVideos");
@@ -68,6 +70,10 @@ async function init() {
     callButton.addEventListener("click", startCall);
     endCallButton.addEventListener("click", endCall);
 
+    // Set up recording buttons
+    recordButton.addEventListener("click", startRecording);
+    stopRecordButton.addEventListener("click", stopRecording);
+
     // Set up beforeunload flush
     window.addEventListener("beforeunload", flushOutbox);
   } catch (error) {
@@ -79,7 +85,10 @@ async function init() {
 // Start Video Call
 async function startCall() {
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true,
+    });
     localVideo.srcObject = localStream;
     videoContainer.style.display = "block";
     callButton.style.display = "none";
@@ -87,10 +96,10 @@ async function startCall() {
 
     // Add tracks to all existing peer connections
     for (const [peerId, pc] of peerConnections.entries()) {
-      localStream.getTracks().forEach(track => {
+      localStream.getTracks().forEach((track) => {
         pc.addTrack(track, localStream);
       });
-      
+
       // Renegotiate
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -105,23 +114,87 @@ async function startCall() {
 // End Video Call
 function endCall() {
   if (localStream) {
-    localStream.getTracks().forEach(track => track.stop());
+    localStream.getTracks().forEach((track) => track.stop());
     localStream = null;
   }
-  
+
   localVideo.srcObject = null;
   videoContainer.style.display = "none";
   callButton.style.display = "inline-block";
   endCallButton.style.display = "none";
-  
+
   // Remove tracks from peer connections (optional, but good practice)
   // In a simple reload-based app, this might not be strictly necessary if we just stop sending.
   // But to be clean, we could renegotiate. For this experiment, stopping tracks is enough.
   // The remote side will see a frozen or black screen.
-  
+
   // Ideally we should send a "stop-video" signal or renegotiate removing tracks.
   // For simplicity:
   window.location.reload(); // Easiest way to reset state for "experiment"
+}
+
+// Recording Logic
+let mediaRecorder;
+let recordedChunks = [];
+
+async function startRecording() {
+  try {
+    // Use Screen Recording API to capture the tab (video + audio)
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { mediaSource: "screen" },
+      audio: true,
+    });
+
+    mediaRecorder = new MediaRecorder(stream);
+    recordedChunks = [];
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) {
+        recordedChunks.push(e.data);
+      }
+    };
+
+    mediaRecorder.onstop = () => {
+      const blob = new Blob(recordedChunks, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = url;
+      a.download = `recording-${new Date().toISOString()}.webm`;
+      document.body.appendChild(a);
+      a.click();
+
+      setTimeout(() => {
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+      }, 100);
+
+      // Reset UI
+      recordButton.style.display = "inline-block";
+      stopRecordButton.style.display = "none";
+    };
+
+    mediaRecorder.start();
+
+    // Update UI
+    recordButton.style.display = "none";
+    stopRecordButton.style.display = "inline-block";
+
+    // Handle user stopping via browser UI (e.g. "Stop sharing" bar)
+    stream.getVideoTracks()[0].onended = () => {
+      stopRecording();
+    };
+  } catch (err) {
+    console.error("Error starting recording:", err);
+    alert("Could not start recording: " + err.message);
+  }
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== "inactive") {
+    mediaRecorder.stop();
+    mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+  }
 }
 
 // Handle file upload
@@ -235,13 +308,13 @@ function displayMessage(message) {
 
   if (message.type === "file") {
     const link = document.createElement("a");
-    
+
     // Validate URL protocol to prevent XSS
     let safeUrl = "#";
     try {
       if (message.url) {
         const url = new URL(message.url, window.location.origin);
-        if (['http:', 'https:'].includes(url.protocol)) {
+        if (["http:", "https:"].includes(url.protocol)) {
           safeUrl = message.url;
         }
       }
@@ -464,49 +537,51 @@ async function createPeerConnection(peerId, initiator) {
   pc.ontrack = (event) => {
     console.log(`Received remote track from ${peerId}`, event.streams);
     const stream = event.streams[0];
-    if (!stream) return;
+    if (!stream) {
+      return;
+    }
 
     let videoEl = document.getElementById(`remote-video-${peerId}`);
     if (!videoEl) {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'video-wrapper';
-      wrapper.style.position = 'relative';
-      wrapper.style.minWidth = '200px';
+      const wrapper = document.createElement("div");
+      wrapper.className = "video-wrapper";
+      wrapper.style.position = "relative";
+      wrapper.style.minWidth = "200px";
 
-      videoEl = document.createElement('video');
+      videoEl = document.createElement("video");
       videoEl.id = `remote-video-${peerId}`;
       videoEl.autoplay = true;
       videoEl.playsInline = true;
-      videoEl.style.width = '200px';
-      videoEl.style.height = '150px';
-      videoEl.style.background = '#000';
-      videoEl.style.borderRadius = '8px';
-      videoEl.style.objectFit = 'cover';
-      
-      const label = document.createElement('span');
+      videoEl.style.width = "200px";
+      videoEl.style.height = "150px";
+      videoEl.style.background = "#000";
+      videoEl.style.borderRadius = "8px";
+      videoEl.style.objectFit = "cover";
+
+      const label = document.createElement("span");
       label.textContent = `User ${peerId.substr(0, 4)}`; // Simple label
-      label.style.position = 'absolute';
-      label.style.bottom = '5px';
-      label.style.left = '5px';
-      label.style.color = 'white';
-      label.style.fontSize = '12px';
-      label.style.background = 'rgba(0,0,0,0.5)';
-      label.style.padding = '2px 5px';
-      label.style.borderRadius = '4px';
+      label.style.position = "absolute";
+      label.style.bottom = "5px";
+      label.style.left = "5px";
+      label.style.color = "white";
+      label.style.fontSize = "12px";
+      label.style.background = "rgba(0,0,0,0.5)";
+      label.style.padding = "2px 5px";
+      label.style.borderRadius = "4px";
 
       wrapper.appendChild(videoEl);
       wrapper.appendChild(label);
       remoteVideosDiv.appendChild(wrapper);
-      
+
       // Show container if hidden
-      videoContainer.style.display = 'block';
+      videoContainer.style.display = "block";
     }
     videoEl.srcObject = stream;
   };
 
   // Add local tracks if call is active
   if (localStream) {
-    localStream.getTracks().forEach(track => {
+    localStream.getTracks().forEach((track) => {
       pc.addTrack(track, localStream);
     });
   }
@@ -594,16 +669,16 @@ function closePeerConnection(peerId) {
     channel.close();
     dataChannels.delete(peerId);
   }
-  
+
   // Remove remote video
   const videoEl = document.getElementById(`remote-video-${peerId}`);
   if (videoEl) {
     videoEl.parentElement.remove();
   }
-  
+
   // Hide container if no videos
   if (remoteVideosDiv.children.length === 0 && !localStream) {
-    videoContainer.style.display = 'none';
+    videoContainer.style.display = "none";
   }
 
   updateConnectionStatus();
