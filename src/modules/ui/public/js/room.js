@@ -176,6 +176,9 @@ function displayMessage(message) {
   bodyDiv.className = "message-body";
 
   if (message.type === "file") {
+    const attachmentWrapper = document.createElement("div");
+    attachmentWrapper.className = "message-attachment";
+
     const link = document.createElement("a");
     
     // Validate URL protocol to prevent XSS
@@ -191,11 +194,20 @@ function displayMessage(message) {
       console.error("Invalid URL:", message.url);
     }
 
+    if (message.mimetype && message.mimetype.startsWith("image/") && safeUrl !== "#") {
+      const previewImage = document.createElement("img");
+      previewImage.className = "attachment-preview";
+      previewImage.src = safeUrl;
+      previewImage.alt = message.filename || "Attachment preview";
+      attachmentWrapper.appendChild(previewImage);
+    }
+
     link.href = safeUrl;
     link.textContent = message.filename || message.body;
     link.target = "_blank";
     link.download = message.filename || "download";
-    bodyDiv.appendChild(link);
+    attachmentWrapper.appendChild(link);
+    bodyDiv.appendChild(attachmentWrapper);
   } else {
     bodyDiv.textContent = message.body;
   }
