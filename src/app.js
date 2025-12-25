@@ -37,7 +37,7 @@ export async function buildApp(opts = {}) {
 
   // Register plugins
   await app.register(fastifyCookie, {
-    secret: app.config.COOKIE_SECRET,
+    secret: "adel",
   });
 
   await app.register(fastifyFormBody);
@@ -122,5 +122,7 @@ export async function start() {
   }
 }
 
-// Start server
-start();
+// Start server if not in test mode
+if (process.env.NODE_ENV !== "test") {
+  start();
+}

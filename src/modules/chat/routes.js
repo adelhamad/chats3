@@ -194,8 +194,10 @@ export default async function chatRoutes(fastify) {
         });
 
         // Delete session
-        deleteSession(sessionId);
-        reply.clearCookie("sessionId");
+        if (request.query.keepSession !== "true") {
+          deleteSession(sessionId);
+          reply.clearCookie("sessionId");
+        }
 
         return success.parse({
           message: "Left conversation",

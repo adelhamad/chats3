@@ -161,7 +161,7 @@ function handleUnload() {
   // Note: Beacon doesn't support custom headers easily, but we still have the cookie as fallback
   // If we rely purely on headers, beacon might fail for auth.
   // However, for "leave on tab close", it's best effort.
-  navigator.sendBeacon("/api/v1/leave");
+  navigator.sendBeacon("/api/v1/leave?keepSession=true");
 }
 
 // Scroll to bottom
@@ -497,6 +497,9 @@ async function uploadFile(file) {
 }
 
 // Load message history
+// Last Seen Map
+const lastSeenMap = new Map(); // userId -> timestamp
+
 async function loadMessageHistory() {
   try {
     const response = await apiFetch("/api/v1/messages");
@@ -504,13 +507,64 @@ async function loadMessageHistory() {
 
     if (data.success && data.details) {
       data.details.forEach(displayMessage);
+      // Update UI with initial last seen values
+      updateAllUserStatuses();
     }
   } catch (error) {
     console.error("Failed to load history:", error);
   }
 }
 
-function getAvatar(name) {
+function updateLastSeen(userId, timestamp) {
+  const current = lastSeenMap.get(userId);
+  if (!current || new Date(timestamp) > new Date(current)) {
+    lastSeenMap.set(userId, timestamp);
+  }
+}
+
+function formatLastSeen(timestamp) {
+  if (!timestamp) {
+    return "Offline";
+  }
+  const date = new Date(timestamp);
+  const now = new Date();
+  const diff = now - date;
+
+  if (diff < 60000) {
+    return "Last seen: Just now";
+  }
+  if (diff < 3600000) {
+    return `Last seen: ${Math.floor(diff / 60000)}m ago`;
+  }
+  if (diff < 86400000) {
+    return `Last seen: ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+  }
+  return `Last seen: ${date.toLocaleDateString()}`;
+}
+
+function updateAllUserStatuses() {
+  lastSeenMap.forEach((timestamp, userId) => {
+    if (!peerConnections.has(userId)) {
+      updateAvatarStatus(userId, false, timestamp);
+    }
+  });
+}
+
+function updateAvatarStatus(userId, isOnline, lastSeenTime) {
+  const avatars = document.querySelectorAll(`.user-avatar-${userId}`);
+  avatars.forEach((el) => {
+    el.classList.remove("online", "offline");
+    el.classList.add(isOnline ? "online" : "offline");
+
+    if (isOnline) {
+      el.title = "Online";
+    } else {
+      el.title = formatLastSeen(lastSeenTime);
+    }
+  });
+}
+
+function getAvatar(name, userId) {
   const initials = name
     ? name
         .split(" ")
@@ -521,6 +575,18 @@ function getAvatar(name) {
     : "?";
   const div = document.createElement("div");
   div.className = "message-avatar";
+  if (userId) {
+    div.classList.add(`user-avatar-${userId}`);
+    // Set initial status
+    if (peerConnections.has(userId)) {
+      div.classList.add("online");
+      div.title = "Online";
+    } else {
+      div.classList.add("offline");
+      const lastSeen = lastSeenMap.get(userId);
+      div.title = formatLastSeen(lastSeen);
+    }
+  }
   div.textContent = initials;
   // Random background color based on name
   let hash = 0;
@@ -533,7 +599,18 @@ function getAvatar(name) {
 }
 
 // Display a message
+// eslint-disable-next-line sonarjs/cognitive-complexity
 function displayMessage(message) {
+  // Update last seen based on message timestamp
+  if (message.senderUserId && message.senderUserId !== sessionInfo.userId) {
+    const ts = message.serverReceivedAt || message.clientTimestamp;
+    updateLastSeen(message.senderUserId, ts);
+    // If not online, update status immediately
+    if (!peerConnections.has(message.senderUserId)) {
+      updateAvatarStatus(message.senderUserId, false, ts);
+    }
+  }
+
   // Avoid duplicates
   if (
     message.messageId &&
@@ -562,7 +639,9 @@ function displayMessage(message) {
   rowDiv.className = rowClass;
 
   if (!isOwn && !isSystem) {
-    rowDiv.appendChild(getAvatar(message.senderDisplayName || "User"));
+    rowDiv.appendChild(
+      getAvatar(message.senderDisplayName || "User", message.senderUserId),
+    );
   }
 
   const messageDiv = document.createElement("div");
@@ -600,6 +679,16 @@ function displayMessage(message) {
 
   headerDiv.appendChild(senderSpan);
   headerDiv.appendChild(timeSpan);
+
+  // Add status icon for own messages
+  if (isOwn) {
+    const statusSpan = document.createElement("span");
+    statusSpan.className = "message-status";
+    statusSpan.id = `status-${message.messageId}`;
+    statusSpan.textContent = "✓"; // Single check for sent
+    statusSpan.title = "Sent";
+    headerDiv.appendChild(statusSpan);
+  }
 
   const bodyDiv = document.createElement("div");
   bodyDiv.className = "message-body";
@@ -1019,11 +1108,59 @@ function setupDataChannel(peerId, channel) {
   channel.onmessage = (event) => {
     try {
       const message = JSON.parse(event.data);
-      displayMessage(message);
+
+      if (message.type === "receipt") {
+        handleReadReceipt(message);
+      } else {
+        displayMessage(message);
+        // Send "Delivered" receipt immediately
+        if (message.messageId) {
+          sendReadReceipt(peerId, message.messageId, "delivered");
+
+          // If window is focused, send "Read" receipt
+          if (document.hasFocus()) {
+            sendReadReceipt(peerId, message.messageId, "read");
+          } else {
+            // Wait for focus
+            const onFocus = () => {
+              sendReadReceipt(peerId, message.messageId, "read");
+              window.removeEventListener("focus", onFocus);
+            };
+            window.addEventListener("focus", onFocus);
+          }
+        }
+      }
     } catch (error) {
       console.error("Failed to parse data channel message:", error);
     }
   };
+}
+
+function sendReadReceipt(peerId, messageId, status) {
+  const channel = dataChannels.get(peerId);
+  if (channel && channel.readyState === "open") {
+    channel.send(
+      JSON.stringify({
+        type: "receipt",
+        messageId: messageId,
+        status: status,
+      }),
+    );
+  }
+}
+
+function handleReadReceipt(receipt) {
+  const statusSpan = document.getElementById(`status-${receipt.messageId}`);
+  if (statusSpan) {
+    if (receipt.status === "read") {
+      statusSpan.textContent = "✓✓";
+      statusSpan.classList.add("read");
+      statusSpan.title = "Read";
+    } else {
+      statusSpan.textContent = "✓✓"; // Delivered
+      statusSpan.title = "Delivered";
+    }
+  }
 }
 
 // Close peer connection
@@ -1039,6 +1176,11 @@ function closePeerConnection(peerId) {
     channel.close();
     dataChannels.delete(peerId);
   }
+
+  // Update avatars to offline with current time
+  const now = new Date().toISOString();
+  updateLastSeen(peerId, now);
+  updateAvatarStatus(peerId, false, now);
 
   // Remove remote video
   const videoEl = document.getElementById(`remote-video-${peerId}`);
@@ -1096,12 +1238,27 @@ function updateConnectionStatus() {
     window.signalingEventSource &&
     window.signalingEventSource.readyState === EventSource.OPEN;
 
+  // Update Online Count
+  const onlineCount = peerConnections.size + 1; // +1 for self
+  const onlineText = onlineCount > 1 ? ` (${onlineCount} Online)` : "";
+
+  // Update Avatar Statuses
+  peerConnections.forEach((pc, userId) => {
+    updateAvatarStatus(userId, true);
+  });
+
+  // Note: We can't easily set "offline" for users who left without tracking all users ever seen.
+  // But we can assume anyone NOT in peerConnections is offline if we knew they existed.
+  // Since we only have classes for users who sent messages, we can iterate all avatar classes?
+  // Simpler: Just rely on the fact that we add 'online' when they join.
+  // When they leave (closePeerConnection), we should set them to offline.
+
   if (hasConnectedPeers) {
-    statusSpan.textContent = "🟢";
+    statusSpan.textContent = "🟢" + onlineText;
     statusSpan.className = "status-connected";
     statusSpan.title = "Connected (P2P)";
   } else if (isSSEConnected) {
-    statusSpan.textContent = "🟡";
+    statusSpan.textContent = "🟡" + onlineText;
     statusSpan.className = "status-connected";
     statusSpan.style.color = "#e67e22";
     statusSpan.title = "Connected (Server)";

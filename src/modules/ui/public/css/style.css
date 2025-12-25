@@ -216,6 +216,19 @@ button:hover {
   display: none; /* Hide sender name for own messages */
 }
 
+.message-status {
+  font-size: 11px;
+  margin-left: 4px;
+  color: #888; /* Default gray for sent/delivered */
+  display: inline-block;
+  min-width: 15px;
+  text-align: right;
+}
+
+.message-status.read {
+  color: #3498db; /* Blue for read */
+}
+
 .message-body {
   color: #000;
   font-size: 14.5px;
@@ -237,6 +250,31 @@ button:hover {
   font-size: 14px;
   margin-right: 10px;
   flex-shrink: 0;
+  position: relative;
+}
+
+.message-avatar.online::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  background-color: #2ecc71;
+  border: 2px solid #fff;
+  border-radius: 50%;
+}
+
+.message-avatar.offline::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  background-color: #95a5a6;
+  border: 2px solid #fff;
+  border-radius: 50%;
 }
 
 .message-row {
