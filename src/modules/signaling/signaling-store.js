@@ -1,6 +1,8 @@
 // In-memory signaling store for WebRTC
 import crypto from "crypto";
+import { EventEmitter } from "events";
 
+export const signalingEmitter = new EventEmitter();
 const signalingStore = new Map(); // conversationId -> events[]
 const cursorStore = new Map(); // cursorToken -> { conversationId, index }
 
@@ -22,6 +24,9 @@ export function addSignalingEvent(conversationId, event) {
   };
 
   events.push(signalingEvent);
+
+  // Emit event for SSE listeners
+  signalingEmitter.emit(`event-${conversationId}`, signalingEvent);
 
   // Clean up old events (TTL-based)
   const now = Date.now();

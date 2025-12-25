@@ -32,6 +32,11 @@ export async function saveMessage(messageData) {
     body,
     clientTimestamp,
     serverReceivedAt: new Date().toISOString(),
+    // Pass through attachment fields if present
+    attachmentId: messageData.attachmentId,
+    filename: messageData.filename,
+    mimetype: messageData.mimetype,
+    url: messageData.url,
   };
 
   // Cache the message

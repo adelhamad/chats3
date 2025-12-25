@@ -1,29 +1,30 @@
+/* eslint-disable no-undef */
 // Room WebRTC client
-const conversationId = window.CONVERSATION_ID;
 let sessionInfo = null;
 let peerConnections = new Map(); // userId -> RTCPeerConnection
 let dataChannels = new Map(); // userId -> RTCDataChannel
-let signalingCursor = null;
 let messageOutbox = [];
 
-const messagesDiv = document.getElementById('chatMessages');
-const messageInput = document.getElementById('messageInput');
-const sendButton = document.getElementById('sendButton');
-const statusSpan = document.getElementById('connectionStatus');
-const userNameSpan = document.getElementById('userName');
+const messagesDiv = document.getElementById("chatMessages");
+const messageInput = document.getElementById("messageInput");
+const sendButton = document.getElementById("sendButton");
+const attachButton = document.getElementById("attachButton");
+const fileInput = document.getElementById("fileInput");
+const statusSpan = document.getElementById("connectionStatus");
+const userNameSpan = document.getElementById("userName");
 
 // Initialize
 async function init() {
   try {
     // Get session info
-    const sessionResponse = await fetch('/api/v1/session', {
-      credentials: 'include',
+    const sessionResponse = await fetch("/api/v1/session", {
+      credentials: "include",
     });
     const sessionData = await sessionResponse.json();
-    
+
     if (!sessionData.success) {
-      alert('No valid session. Please join again.');
-      window.location.href = '/join';
+      alert("No valid session. Please join again.");
+      window.location.href = "/join";
       return;
     }
 
@@ -33,37 +34,101 @@ async function init() {
     // Load message history
     await loadMessageHistory();
 
-    // Start signaling poll
-    startSignalingPoll();
+    // Start signaling SSE
+    setupSignalingSSE();
 
     // Announce peer join
-    await sendSignalingEvent('peer-join', null, {
+    await sendSignalingEvent("peer-join", undefined, {
       userId: sessionInfo.userId,
       displayName: sessionInfo.displayName,
     });
 
     // Set up send button
-    sendButton.addEventListener('click', sendMessage);
-    messageInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
+    sendButton.addEventListener("click", sendMessage);
+    messageInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") {
         sendMessage();
       }
     });
 
-    // Set up beforeunload flush
-    window.addEventListener('beforeunload', flushOutbox);
+    // Set up attach button
+    attachButton.addEventListener("click", () => {
+      fileInput.click();
+    });
 
+    fileInput.addEventListener("change", handleFileUpload);
+
+    // Set up beforeunload flush
+    window.addEventListener("beforeunload", flushOutbox);
   } catch (error) {
-    console.error('Initialization error:', error);
-    alert('Failed to initialize chat');
+    console.error("Initialization error:", error);
+    alert("Failed to initialize chat");
+  }
+}
+
+// Handle file upload
+async function handleFileUpload(event) {
+  const file = event.target.files[0];
+  if (!file) {
+    return;
+  }
+
+  // Reset input
+  fileInput.value = "";
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const response = await fetch("/api/v1/attachments", {
+      method: "POST",
+      body: formData,
+      credentials: "include",
+    });
+
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.message || "Upload failed");
+    }
+
+    const attachment = data.details;
+
+    // Send message with attachment
+    const messageId = generateUUID();
+    const message = {
+      messageId,
+      type: "file",
+      body: `[File] ${attachment.originalFilename}`,
+      clientTimestamp: new Date().toISOString(),
+      attachmentId: attachment.attachmentId,
+      filename: attachment.originalFilename,
+      mimetype: attachment.mimeType,
+      url: `/api/v1/attachments/${attachment.attachmentId}?download=true`,
+    };
+
+    // Display immediately
+    displayMessage({
+      ...message,
+      senderDisplayName: sessionInfo.displayName,
+      senderUserId: sessionInfo.userId,
+    });
+
+    // Send via WebRTC
+    broadcastViaDataChannel(message);
+
+    // Save to backend (as a message)
+    await saveMessageToBackend(message);
+  } catch (error) {
+    console.error("Upload error:", error);
+    alert("Failed to upload file: " + error.message);
   }
 }
 
 // Load message history
 async function loadMessageHistory() {
   try {
-    const response = await fetch('/api/v1/messages', {
-      credentials: 'include',
+    const response = await fetch("/api/v1/messages", {
+      credentials: "include",
     });
     const data = await response.json();
 
@@ -71,36 +136,59 @@ async function loadMessageHistory() {
       data.details.forEach(displayMessage);
     }
   } catch (error) {
-    console.error('Failed to load history:', error);
+    console.error("Failed to load history:", error);
   }
 }
 
 // Display a message
 function displayMessage(message) {
-  const messageDiv = document.createElement('div');
-  messageDiv.className = 'message';
-  
-  const headerDiv = document.createElement('div');
-  headerDiv.className = 'message-header';
-  
-  const senderSpan = document.createElement('span');
-  senderSpan.className = 'message-sender';
+  // Avoid duplicates
+  if (
+    message.messageId &&
+    document.querySelector(`[data-message-id="${message.messageId}"]`)
+  ) {
+    return;
+  }
+
+  const messageDiv = document.createElement("div");
+  messageDiv.className = "message";
+  if (message.messageId) {
+    messageDiv.setAttribute("data-message-id", message.messageId);
+  }
+
+  const headerDiv = document.createElement("div");
+  headerDiv.className = "message-header";
+
+  const senderSpan = document.createElement("span");
+  senderSpan.className = "message-sender";
   senderSpan.textContent = message.senderDisplayName;
-  
-  const timeSpan = document.createElement('span');
-  const timestamp = new Date(message.serverReceivedAt || message.clientTimestamp);
+
+  const timeSpan = document.createElement("span");
+  const timestamp = new Date(
+    message.serverReceivedAt || message.clientTimestamp,
+  );
   timeSpan.textContent = timestamp.toLocaleTimeString();
-  
+
   headerDiv.appendChild(senderSpan);
   headerDiv.appendChild(timeSpan);
-  
-  const bodyDiv = document.createElement('div');
-  bodyDiv.className = 'message-body';
-  bodyDiv.textContent = message.body;
-  
+
+  const bodyDiv = document.createElement("div");
+  bodyDiv.className = "message-body";
+
+  if (message.type === "file") {
+    const link = document.createElement("a");
+    link.href = message.url || "#";
+    link.textContent = message.filename || message.body;
+    link.target = "_blank";
+    link.download = message.filename || "download";
+    bodyDiv.appendChild(link);
+  } else {
+    bodyDiv.textContent = message.body;
+  }
+
   messageDiv.appendChild(headerDiv);
   messageDiv.appendChild(bodyDiv);
-  
+
   messagesDiv.appendChild(messageDiv);
   messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
@@ -108,12 +196,14 @@ function displayMessage(message) {
 // Send message
 async function sendMessage() {
   const body = messageInput.value.trim();
-  if (!body) return;
+  if (!body) {
+    return;
+  }
 
   const messageId = generateUUID();
   const message = {
     messageId,
-    type: 'text',
+    type: "text",
     body,
     clientTimestamp: new Date().toISOString(),
   };
@@ -126,7 +216,7 @@ async function sendMessage() {
   });
 
   // Clear input
-  messageInput.value = '';
+  messageInput.value = "";
 
   // Send via WebRTC to all peers
   broadcastViaDataChannel(message);
@@ -138,102 +228,137 @@ async function sendMessage() {
   try {
     await saveMessageToBackend(message);
     // Remove from outbox on success
-    messageOutbox = messageOutbox.filter(m => m.messageId !== messageId);
+    messageOutbox = messageOutbox.filter((m) => m.messageId !== messageId);
   } catch (error) {
-    console.error('Failed to save message:', error);
+    console.error("Failed to save message:", error);
     // Keep in outbox for retry
   }
 }
 
 // Save message to backend
 async function saveMessageToBackend(message) {
-  const response = await fetch('/api/v1/messages', {
-    method: 'POST',
+  const response = await fetch("/api/v1/messages", {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
-    credentials: 'include',
+    credentials: "include",
     body: JSON.stringify(message),
   });
 
   if (!response.ok) {
-    throw new Error('Failed to save message');
+    throw new Error("Failed to save message");
   }
 }
 
 // Flush outbox (on page close)
 function flushOutbox() {
-  if (messageOutbox.length === 0) return;
+  if (messageOutbox.length === 0) {
+    return;
+  }
 
   const blob = new Blob([JSON.stringify({ messages: messageOutbox })], {
-    type: 'application/json',
+    type: "application/json",
   });
 
-  navigator.sendBeacon('/api/v1/messages/batch', blob);
+  navigator.sendBeacon("/api/v1/messages/batch", blob);
 }
 
-// Signaling polling
-async function startSignalingPoll() {
-  while (true) {
+// Signaling SSE
+function setupSignalingSSE() {
+  console.log("Setting up SSE connection...");
+  const eventSource = new EventSource("/api/v1/signaling", {
+    withCredentials: true,
+  });
+
+  eventSource.onopen = () => {
+    console.log("SSE connection opened");
+    updateConnectionStatus();
+  };
+
+  eventSource.onmessage = async (event) => {
     try {
-      const url = signalingCursor
-        ? `/api/v1/signaling?cursor=${signalingCursor}`
-        : '/api/v1/signaling';
+      const data = JSON.parse(event.data);
+      // console.log("SSE received:", data.type);
 
-      const response = await fetch(url, {
-        credentials: 'include',
-      });
-
-      const data = await response.json();
-
-      if (data.success && data.details) {
-        signalingCursor = data.details.cursor;
-        
-        for (const event of data.details.events) {
-          await handleSignalingEvent(event);
-        }
+      if (data.type === "system" && data.data === "connected") {
+        console.log("SSE system connected");
+        return;
       }
 
-      // Poll every 2 seconds
-      await sleep(2000);
+      await handleSignalingEvent(data);
     } catch (error) {
-      console.error('Signaling poll error:', error);
-      await sleep(5000); // Retry after 5 seconds on error
+      console.error("Failed to parse signaling event:", error);
     }
-  }
+  };
+
+  eventSource.onerror = (error) => {
+    console.error("SSE error:", error);
+    // EventSource automatically retries, but we can handle specific errors if needed
+    if (eventSource.readyState === EventSource.CLOSED) {
+      updateConnectionStatus();
+    }
+  };
+
+  // Store reference to close later if needed
+  window.signalingEventSource = eventSource;
 }
 
 // Handle signaling event
 async function handleSignalingEvent(event) {
   const { type, fromUserId, data } = event;
+  console.log(`Handling signaling event: ${type} from ${fromUserId}`);
 
   switch (type) {
-    case 'peer-join':
+    case "peer-join":
       if (fromUserId !== sessionInfo.userId) {
+        console.log(`Peer joined: ${fromUserId}. Initiating connection...`);
         await createPeerConnection(fromUserId, true);
+      } else {
+        console.warn(
+          "Ignoring peer-join from self. To test peer connection, use a different browser or Incognito mode.",
+        );
       }
       break;
 
-    case 'offer':
+    case "offer":
       if (event.toUserId === sessionInfo.userId) {
+        console.log(`Received offer from ${fromUserId}`);
         await handleOffer(fromUserId, data);
       }
       break;
 
-    case 'answer':
+    case "answer":
       if (event.toUserId === sessionInfo.userId) {
+        console.log(`Received answer from ${fromUserId}`);
         await handleAnswer(fromUserId, data);
       }
       break;
 
-    case 'ice-candidate':
+    case "ice-candidate":
       if (event.toUserId === sessionInfo.userId) {
         await handleIceCandidate(fromUserId, data);
       }
       break;
 
-    case 'peer-leave':
+    case "peer-leave":
       closePeerConnection(fromUserId);
+      break;
+
+    case "new-message":
+      // Handle message received via server (fallback/sync)
+      if (data.messageId) {
+        // Check if we already have this message (e.g. sent by us or received via WebRTC)
+        // We need a way to check duplicates.
+        // For now, let's just try to display it. displayMessage appends.
+        // We should probably check if the message ID is already in the DOM or memory.
+        const existingMsg = document.querySelector(
+          `[data-message-id="${data.messageId}"]`,
+        );
+        if (!existingMsg) {
+          displayMessage(data);
+        }
+      }
       break;
   }
 }
@@ -245,9 +370,7 @@ async function createPeerConnection(peerId, initiator) {
   }
 
   const pc = new RTCPeerConnection({
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-    ],
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
   });
 
   peerConnections.set(peerId, pc);
@@ -255,7 +378,7 @@ async function createPeerConnection(peerId, initiator) {
   // Handle ICE candidates
   pc.onicecandidate = (event) => {
     if (event.candidate) {
-      sendSignalingEvent('ice-candidate', peerId, event.candidate);
+      sendSignalingEvent("ice-candidate", peerId, event.candidate);
     }
   };
 
@@ -267,13 +390,13 @@ async function createPeerConnection(peerId, initiator) {
 
   if (initiator) {
     // Create data channel
-    const channel = pc.createDataChannel('chat', { ordered: true });
+    const channel = pc.createDataChannel("chat", { ordered: true });
     setupDataChannel(peerId, channel);
 
     // Create and send offer
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    await sendSignalingEvent('offer', peerId, offer);
+    await sendSignalingEvent("offer", peerId, offer);
   } else {
     // Wait for data channel
     pc.ondatachannel = (event) => {
@@ -291,7 +414,7 @@ async function handleOffer(peerId, offer) {
 
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
-  await sendSignalingEvent('answer', peerId, answer);
+  await sendSignalingEvent("answer", peerId, answer);
 }
 
 // Handle answer
@@ -330,7 +453,7 @@ function setupDataChannel(peerId, channel) {
       const message = JSON.parse(event.data);
       displayMessage(message);
     } catch (error) {
-      console.error('Failed to parse data channel message:', error);
+      console.error("Failed to parse data channel message:", error);
     }
   };
 }
@@ -361,8 +484,9 @@ function broadcastViaDataChannel(message) {
     senderRole: sessionInfo.role,
   });
 
+  // eslint-disable-next-line sonarjs/no-unused-vars, no-unused-vars, sonarjs/no-dead-store
   for (const [peerId, channel] of dataChannels.entries()) {
-    if (channel.readyState === 'open') {
+    if (channel.readyState === "open") {
       channel.send(messageStr);
     }
   }
@@ -370,12 +494,12 @@ function broadcastViaDataChannel(message) {
 
 // Send signaling event
 async function sendSignalingEvent(type, toUserId, data) {
-  await fetch('/api/v1/signaling', {
-    method: 'POST',
+  await fetch("/api/v1/signaling", {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
-    credentials: 'include',
+    credentials: "include",
     body: JSON.stringify({
       type,
       toUserId,
@@ -387,29 +511,36 @@ async function sendSignalingEvent(type, toUserId, data) {
 // Update connection status
 function updateConnectionStatus() {
   const hasConnectedPeers = Array.from(dataChannels.values()).some(
-    (ch) => ch.readyState === 'open'
+    (ch) => ch.readyState === "open",
   );
 
+  const isSSEConnected =
+    window.signalingEventSource &&
+    window.signalingEventSource.readyState === EventSource.OPEN;
+
   if (hasConnectedPeers) {
-    statusSpan.textContent = 'Connected';
-    statusSpan.className = 'status-connected';
+    statusSpan.textContent = "Connected (P2P)";
+    statusSpan.className = "status-connected";
+    statusSpan.title = "Direct WebRTC connection established";
+  } else if (isSSEConnected) {
+    statusSpan.textContent = "Connected (Server)";
+    statusSpan.className = "status-connected"; // Use same green color or maybe yellow?
+    statusSpan.style.color = "#e67e22"; // Orange to indicate fallback
+    statusSpan.title = "Connected via Server Relay (WebRTC connecting...)";
   } else {
-    statusSpan.textContent = 'Disconnected';
-    statusSpan.className = 'status-disconnected';
+    statusSpan.textContent = "Disconnected";
+    statusSpan.className = "status-disconnected";
+    statusSpan.style.color = ""; // Reset
   }
 }
 
 // Utility functions
 function generateUUID() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 // Start the application

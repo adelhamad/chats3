@@ -14,8 +14,15 @@ import {
   getConversationMessages,
   sanitizeMessageBody,
 } from "../message/index.js";
-import { createSession } from "../session/index.js";
-import { addSignalingEvent, pollSignalingEvents } from "../signaling/index.js";
+import {
+  createSession,
+  getSessionsByConversation,
+} from "../session/index.js";
+import {
+  addSignalingEvent,
+  pollSignalingEvents,
+  signalingEmitter,
+} from "../signaling/index.js";
 
 const joinSchema = z.object({
   conversationId: z.string(),
@@ -34,6 +41,11 @@ const messageSchema = z.object({
   type: z.enum(["text", "system", "file"]).default("text"),
   body: z.string(),
   clientTimestamp: z.string().datetime(),
+  // Allow extra fields for file attachments
+  attachmentId: z.string().optional(),
+  filename: z.string().optional(),
+  mimetype: z.string().optional(),
+  url: z.string().optional(),
 });
 
 const batchMessagesSchema = z.object({
@@ -41,8 +53,8 @@ const batchMessagesSchema = z.object({
 });
 
 const signalingSchema = z.object({
-  type: z.enum(["peer-join", "peer-leave", "offer", "answer", "ice-candidate"]),
-  toUserId: z.string().optional(),
+  type: z.enum(["peer-join", "peer-leave", "offer", "answer", "ice-candidate", "new-message"]),
+  toUserId: z.string().nullish(),
   data: z.any(),
 });
 
@@ -64,6 +76,19 @@ export default async function chatRoutes(fastify) {
         });
       }
 
+      // Check for duplicate display name
+      const existingSessions = getSessionsByConversation(conversationId);
+      const isNameTaken = existingSessions.some(
+        (s) => s.displayName.toLowerCase() === displayName.toLowerCase(),
+      );
+
+      if (isNameTaken) {
+        reply.status(409); // Conflict
+        return fail.parse({
+          message: "Display name is already taken in this conversation",
+        });
+      }
+
       // Create session
       const userId = crypto.randomUUID();
       const session = createSession({
@@ -75,13 +100,22 @@ export default async function chatRoutes(fastify) {
       });
 
       // Set session cookie
-      reply.setCookie("sessionId", session.sessionId, {
+      const cookieOptions = {
         httpOnly: true,
-        secure: fastify.config.NODE_ENV === "production",
-        sameSite: "none",
         path: "/",
         maxAge: 24 * 60 * 60, // 24 hours
-      });
+      };
+
+      // In production, use secure cookies with sameSite none for cross-origin
+      if (fastify.config.NODE_ENV === "production") {
+        cookieOptions.secure = true;
+        cookieOptions.sameSite = "none";
+      } else {
+        // In development, use lax for same-origin (simpler)
+        cookieOptions.sameSite = "lax";
+      }
+
+      reply.setCookie("sessionId", session.sessionId, cookieOptions);
 
       return success.parse({
         message: "Joined conversation",
@@ -125,13 +159,22 @@ export default async function chatRoutes(fastify) {
       });
 
       // Set session cookie
-      reply.setCookie("sessionId", session.sessionId, {
+      const embedCookieOptions = {
         httpOnly: true,
-        secure: fastify.config.NODE_ENV === "production",
-        sameSite: "none",
         path: "/",
         maxAge: 24 * 60 * 60, // 24 hours
-      });
+      };
+
+      // In production, use secure cookies with sameSite none for cross-origin
+      if (fastify.config.NODE_ENV === "production") {
+        embedCookieOptions.secure = true;
+        embedCookieOptions.sameSite = "none";
+      } else {
+        // In development, use lax for same-origin (simpler)
+        embedCookieOptions.sameSite = "lax";
+      }
+
+      reply.setCookie("sessionId", session.sessionId, embedCookieOptions);
 
       return success.parse({
         message: "Session created",
@@ -166,6 +209,13 @@ export default async function chatRoutes(fastify) {
           senderUserId: request.session.userId,
           senderDisplayName: request.session.displayName,
           senderRole: request.session.role,
+        });
+
+        // Broadcast message via signaling (SSE) for multi-tab sync and WebRTC fallback
+        addSignalingEvent(request.session.conversationId, {
+          type: "new-message",
+          fromUserId: request.session.userId,
+          data: message,
         });
 
         return success.parse({
@@ -263,30 +313,65 @@ export default async function chatRoutes(fastify) {
     },
   );
 
-  // Signaling - poll events
+  // Signaling - SSE stream
   fastify.get(
     "/signaling",
     { preHandler: requireSession },
     async (request, reply) => {
-      try {
-        const { cursor } = request.query;
+      const { conversationId, userId } = request.session;
+      request.log.info({ msg: "SSE connection attempt", userId, conversationId });
 
-        const result = pollSignalingEvents(
-          request.session.conversationId,
-          request.session.userId,
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+
+      // Send initial retry interval and connected event
+      reply.raw.write("retry: 3000\n\n");
+      reply.raw.write(`data: ${JSON.stringify({ type: "system", data: "connected" })}\n\n`);
+
+      // Send missed events if cursor is provided
+      const cursor = request.query.cursor || request.headers["last-event-id"];
+      if (cursor) {
+        const { events, cursor: newCursor } = pollSignalingEvents(
+          conversationId,
+          userId,
           cursor,
         );
-
-        return success.parse({
-          message: "Events retrieved",
-          details: result,
-        });
-      } catch (error) {
-        reply.status(400);
-        return fail.parse({
-          message: error.message,
-        });
+        
+        for (const event of events) {
+          // For historical events, we don't send ID to avoid confusing the cursor logic for now
+          reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+        }
       }
+
+      // Listener for new events
+      const onEvent = (event) => {
+        // Filter events: broadcast or targeted to this user
+        if (!event.toUserId || event.toUserId === userId || event.fromUserId === userId) {
+          request.log.info({ msg: "SSE sending event", userId, type: event.type });
+          reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+        }
+      };
+
+      signalingEmitter.on(`event-${conversationId}`, onEvent);
+
+      // Heartbeat to keep connection alive
+      const heartbeat = setInterval(() => {
+        reply.raw.write(": heartbeat\n\n");
+      }, 15000);
+
+      // Cleanup on close
+      request.raw.on("close", () => {
+        request.log.info({ msg: "SSE connection closed", userId });
+        signalingEmitter.off(`event-${conversationId}`, onEvent);
+        clearInterval(heartbeat);
+      });
+
+      // Keep the connection open
+      return new Promise(() => {}); 
     },
   );
 
@@ -338,6 +423,7 @@ export default async function chatRoutes(fastify) {
     async (request, reply) => {
       try {
         const { attachmentId } = request.params;
+        const { download } = request.query;
 
         const attachment = await getAttachment(
           request.session.conversationId,
@@ -349,6 +435,10 @@ export default async function chatRoutes(fastify) {
           return fail.parse({
             message: "Attachment not found",
           });
+        }
+
+        if (download === "true") {
+          return reply.redirect(attachment.signedUrl);
         }
 
         return success.parse({

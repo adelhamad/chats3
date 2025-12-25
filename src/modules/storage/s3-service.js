@@ -149,7 +149,22 @@ export async function getMessages(conversationId, limit = 100) {
   }
 
   // Return most recent messages first, limited
-  return allMessages.slice(-limit).reverse();
+  // But wait, the frontend expects chronological order (oldest first) to append to the bottom.
+  // `allMessages` currently has chunks of messages.
+  // If we read files in reverse order (newest file first), `allMessages` will be [newest_chunk, older_chunk, ...].
+  // And within each chunk, messages are appended (oldest to newest).
+  // So we have [msg100..msg110, msg90..msg99, ...]. This is mixed order.
+
+  // Let's sort everything by timestamp to be safe.
+  allMessages.sort((a, b) => {
+    const tA = new Date(a.serverReceivedAt || a.clientTimestamp).getTime();
+    const tB = new Date(b.serverReceivedAt || b.clientTimestamp).getTime();
+    return tA - tB;
+  });
+
+  // Now we have oldest -> newest.
+  // If we want to limit to 100, we should take the *last* 100 (most recent).
+  return allMessages.slice(-limit);
 }
 
 // Store attachment
@@ -160,13 +175,20 @@ export async function putAttachment(
   metadata,
 ) {
   const key = `conversations/${conversationId}/attachments/${attachmentId}/original`;
+
+  // Sanitize filename for metadata header (ASCII only)
+  // Or just use encodeURIComponent if we want to preserve it fully, but S3 metadata has strict rules.
+  // Safest is to strip non-ASCII or just rely on the separate meta.json file for the real name.
+  // Let's just use a safe version for the header.
+  const safeFilename = metadata.originalFilename.replace(/[^\x20-\x7E]/g, "");
+
   const putCommand = new PutObjectCommand({
     Bucket: bucketName,
     Key: key,
     Body: buffer,
     ContentType: metadata.mimeType,
     Metadata: {
-      originalFilename: metadata.originalFilename,
+      originalFilename: safeFilename,
       uploaderUserId: metadata.uploaderUserId,
     },
   });
