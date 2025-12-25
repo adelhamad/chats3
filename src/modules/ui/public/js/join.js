@@ -52,7 +52,11 @@ document.getElementById("joinForm").addEventListener("submit", async (e) => {
     }
 
     // Redirect to room
-    window.location.href = `/room/${conversationId}`;
+    if (data.details && data.details.sessionId) {
+      window.location.href = `/room/${conversationId}?sessionId=${data.details.sessionId}`;
+    } else {
+      window.location.href = `/room/${conversationId}`;
+    }
   } catch (error) {
     errorDiv.textContent = "Network error: " + error.message;
     errorDiv.style.display = "block";

@@ -1,5 +1,8 @@
 /* eslint-disable no-undef */
 // Room WebRTC client
+const urlParams = new URLSearchParams(window.location.search);
+const sessionId = urlParams.get("sessionId");
+
 let sessionInfo = null;
 let peerConnections = new Map(); // userId -> RTCPeerConnection
 let dataChannels = new Map(); // userId -> RTCDataChannel
@@ -32,11 +35,22 @@ const userNameSpan = document.getElementById("userName");
 const previewContainer = document.getElementById("previewContainer");
 const leaveButton = document.getElementById("leaveButton");
 
+// API Fetch helper to handle session isolation
+async function apiFetch(url, options = {}) {
+  if (sessionId) {
+    options.headers = {
+      ...options.headers,
+      "x-session-id": sessionId,
+    };
+  }
+  return fetch(url, options);
+}
+
 // Initialize
 async function init() {
   try {
     // Get session info
-    const sessionResponse = await fetch("/api/v1/session");
+    const sessionResponse = await apiFetch("/api/v1/session");
     const sessionData = await sessionResponse.json();
 
     if (!sessionData.success) {
@@ -56,6 +70,14 @@ async function init() {
 
     userNameSpan.textContent = sessionInfo.displayName;
 
+    // Handle embedded mode UI
+    const isEmbedded = window.self !== window.top;
+    if (isEmbedded) {
+      callButton.style.display = "none";
+      recordButton.style.display = "none";
+      leaveButton.style.display = "none";
+    }
+
     // Load message history
     await loadMessageHistory();
     scrollToBottom();
@@ -71,10 +93,17 @@ async function init() {
 
     // Set up send button
     sendButton.addEventListener("click", sendMessage);
-    messageInput.addEventListener("keypress", (e) => {
-      if (e.key === "Enter") {
+    messageInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
         sendMessage();
       }
+    });
+
+    // Auto-resize textarea
+    messageInput.addEventListener("input", () => {
+      messageInput.style.height = "auto";
+      messageInput.style.height = messageInput.scrollHeight + "px";
     });
 
     // Set up attach button
@@ -113,7 +142,7 @@ async function init() {
 async function leaveConversation() {
   if (confirm("Are you sure you want to leave the conversation?")) {
     try {
-      await fetch("/api/v1/leave", {
+      await apiFetch("/api/v1/leave", {
         method: "POST",
       });
 
@@ -454,7 +483,7 @@ async function uploadFile(file) {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch("/api/v1/attachments", {
+  const response = await apiFetch("/api/v1/attachments", {
     method: "POST",
     body: formData,
   });
@@ -470,7 +499,7 @@ async function uploadFile(file) {
 // Load message history
 async function loadMessageHistory() {
   try {
-    const response = await fetch("/api/v1/messages");
+    const response = await apiFetch("/api/v1/messages");
     const data = await response.json();
 
     if (data.success && data.details) {
@@ -615,6 +644,7 @@ function renderImageAttachment(message, container) {
   const downloadLink = document.createElement("a");
   downloadLink.href = message.url;
   downloadLink.download = message.filename || "image";
+  downloadLink.target = "_blank";
   downloadLink.textContent = "⬇ Download";
   downloadLink.style.fontSize = "12px";
   downloadLink.style.color = "#5682a3";
@@ -695,6 +725,7 @@ async function sendMessage() {
 
     // Clear input
     messageInput.value = "";
+    messageInput.style.height = "auto";
 
     // Send via WebRTC to all peers
     broadcastViaDataChannel(message);
@@ -714,13 +745,11 @@ async function sendMessage() {
 
 // Save message to backend
 async function saveMessageToBackend(message) {
-  const headers = {
-    "Content-Type": "application/json",
-  };
-
-  const response = await fetch("/api/v1/messages", {
+  const response = await apiFetch("/api/v1/messages", {
     method: "POST",
-    headers,
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(message),
   });
 
@@ -739,14 +768,19 @@ function flushOutbox() {
     type: "application/json",
   });
 
-  navigator.sendBeacon("/api/v1/messages/batch", blob);
+  const url = sessionId
+    ? `/api/v1/messages/batch?sessionId=${sessionId}`
+    : "/api/v1/messages/batch";
+  navigator.sendBeacon(url, blob);
 }
 
 // Signaling SSE
 function setupSignalingSSE() {
   console.log("Setting up SSE connection...");
 
-  const url = "/api/v1/signaling";
+  const url = sessionId
+    ? `/api/v1/signaling?sessionId=${sessionId}`
+    : "/api/v1/signaling";
 
   const eventSource = new EventSource(url);
 
@@ -1037,13 +1071,11 @@ function broadcastViaDataChannel(message) {
 
 // Send signaling event
 async function sendSignalingEvent(type, toUserId, data) {
-  const headers = {
-    "Content-Type": "application/json",
-  };
-
-  await fetch("/api/v1/signaling", {
+  await apiFetch("/api/v1/signaling", {
     method: "POST",
-    headers,
+    headers: {
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
       type,
       toUserId,
@@ -1063,18 +1095,19 @@ function updateConnectionStatus() {
     window.signalingEventSource.readyState === EventSource.OPEN;
 
   if (hasConnectedPeers) {
-    statusSpan.textContent = "Connected (P2P)";
+    statusSpan.textContent = "🟢";
     statusSpan.className = "status-connected";
-    statusSpan.title = "Direct WebRTC connection established";
+    statusSpan.title = "Connected (P2P)";
   } else if (isSSEConnected) {
-    statusSpan.textContent = "Connected (Server)";
-    statusSpan.className = "status-connected"; // Use same green color or maybe yellow?
-    statusSpan.style.color = "#e67e22"; // Orange to indicate fallback
-    statusSpan.title = "Connected via Server Relay (WebRTC connecting...)";
+    statusSpan.textContent = "🟡";
+    statusSpan.className = "status-connected";
+    statusSpan.style.color = "#e67e22";
+    statusSpan.title = "Connected (Server)";
   } else {
-    statusSpan.textContent = "Disconnected";
+    statusSpan.textContent = "🔴";
     statusSpan.className = "status-disconnected";
-    statusSpan.style.color = ""; // Reset
+    statusSpan.style.color = "";
+    statusSpan.title = "Disconnected";
   }
 }
 

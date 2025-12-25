@@ -221,6 +221,7 @@ button:hover {
   font-size: 14.5px;
   line-height: 20px;
   word-wrap: break-word;
+  white-space: pre-wrap;
 }
 
 .message-avatar {
@@ -274,6 +275,10 @@ button:hover {
   font-size: 15px;
   outline: none;
   background: transparent;
+  resize: none;
+  max-height: 150px;
+  font-family: inherit;
+  line-height: 1.4;
 }
 
 #sendButton,
