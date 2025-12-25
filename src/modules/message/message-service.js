@@ -1,9 +1,23 @@
 // Message service
 import crypto from "crypto";
 
+import sanitizeHtml from "sanitize-html";
+
 import { appendMessages, getMessages } from "../storage/index.js";
 
 const messageCache = new Map(); // messageId -> message (for idempotency)
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Cleanup interval (every minute)
+setInterval(() => {
+  const now = Date.now();
+  for (const [messageId, message] of messageCache.entries()) {
+    const timestamp = new Date(message.serverReceivedAt).getTime();
+    if (now - timestamp > CACHE_TTL) {
+      messageCache.delete(messageId);
+    }
+  }
+}, 60 * 1000).unref();
 
 export async function saveMessage(messageData) {
   const {
@@ -96,10 +110,10 @@ export function sanitizeMessageBody(body) {
   if (!body || typeof body !== "string") {
     return "";
   }
-  // Remove all HTML tags using a simple regex
-  // This regex is safe from ReDoS as it uses a negated character class
-  // CodeQL may flag this, but we're removing ALL tags (not selectively sanitizing)
-  // which is safer than trying to parse HTML. No HTML is allowed in messages.
-  // eslint-disable-next-line sonarjs/slow-regex
-  return body.replace(/<[^>]*>/g, "");
+
+  return sanitizeHtml(body, {
+    allowedTags: [], // No HTML tags allowed
+    allowedAttributes: {}, // No attributes allowed
+    disallowedTagsMode: "recursiveEscape", // Escape tags instead of stripping content
+  });
 }

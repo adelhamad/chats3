@@ -1,6 +1,8 @@
 // Attachment service
 import crypto from "crypto";
 
+import { fileTypeFromBuffer } from "file-type";
+
 import {
   putAttachment,
   getAttachmentMeta,
@@ -24,9 +26,21 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 export async function uploadAttachment(conversationId, uploaderUserId, file) {
   const { filename, mimetype, file: buffer } = file;
 
-  // Validate mime type
+  // Validate mime type (trust but verify)
   if (!ALLOWED_MIME_TYPES.includes(mimetype)) {
     throw new Error("File type not allowed");
+  }
+
+  // Verify magic numbers
+  const type = await fileTypeFromBuffer(buffer);
+  if (!type || !ALLOWED_MIME_TYPES.includes(type.mime)) {
+    // Special case for text/plain which might not be detected by file-type
+    if (mimetype === "text/plain" && !type) {
+      // It's likely a text file, we can allow it if the extension matches
+      // or just trust it for text files as they are less risky (if served with correct headers)
+    } else {
+      throw new Error("Invalid file content (magic number mismatch)");
+    }
   }
 
   // Validate size

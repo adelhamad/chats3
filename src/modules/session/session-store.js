@@ -2,9 +2,26 @@
 import crypto from "crypto";
 
 const sessions = new Map();
+const SESSION_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+// Cleanup interval (every hour)
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [sessionId, session] of sessions.entries()) {
+      const lastActive =
+        session.lastActiveAt || new Date(session.createdAt).getTime();
+      if (now - lastActive > SESSION_TTL) {
+        sessions.delete(sessionId);
+      }
+    }
+  },
+  60 * 60 * 1000,
+).unref(); // unref to allow process to exit if needed
 
 export function createSession(sessionData) {
   const sessionId = crypto.randomUUID();
+  const now = new Date().toISOString();
   const session = {
     sessionId,
     userId: sessionData.userId,
@@ -12,14 +29,19 @@ export function createSession(sessionData) {
     avatarUrl: sessionData.avatarUrl || null,
     role: sessionData.role || "user",
     conversationId: sessionData.conversationId,
-    createdAt: new Date().toISOString(),
+    createdAt: now,
+    lastActiveAt: Date.now(),
   };
   sessions.set(sessionId, session);
   return session;
 }
 
 export function getSession(sessionId) {
-  return sessions.get(sessionId);
+  const session = sessions.get(sessionId);
+  if (session) {
+    session.lastActiveAt = Date.now();
+  }
+  return session;
 }
 
 export function deleteSession(sessionId) {

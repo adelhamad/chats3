@@ -4,6 +4,26 @@ import crypto from "crypto";
 import { putConversationMeta, getConversationMeta } from "../storage/index.js";
 
 const conversations = new Map();
+const CONVERSATION_TTL = 24 * 60 * 60 * 1000; // 24 hours (remove from memory, not S3)
+
+// Cleanup interval (every hour)
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [id, conv] of conversations.entries()) {
+      // Use last accessed time if we had it, otherwise createdAt
+      // Since we don't track access time on conversations yet, let's just use a simple LRU-like
+      // or just rely on createdAt for now, but that's risky if it's active.
+      // Better: Add lastAccessedAt
+      const lastAccessed =
+        conv.lastAccessedAt || new Date(conv.createdAt).getTime();
+      if (now - lastAccessed > CONVERSATION_TTL) {
+        conversations.delete(id);
+      }
+    }
+  },
+  60 * 60 * 1000,
+).unref();
 
 // Generate a short, human-readable join code
 function generateJoinCode() {
@@ -27,6 +47,7 @@ export async function createConversation(conversationId) {
     status: "active",
     createdAt: new Date().toISOString(),
     closedAt: null,
+    lastAccessedAt: Date.now(),
   };
 
   conversations.set(conversationId, conversation);
@@ -40,12 +61,15 @@ export async function createConversation(conversationId) {
 export async function getConversation(conversationId) {
   // Check in-memory first
   if (conversations.has(conversationId)) {
-    return conversations.get(conversationId);
+    const conv = conversations.get(conversationId);
+    conv.lastAccessedAt = Date.now();
+    return conv;
   }
 
   // Try to load from S3
   const meta = await getConversationMeta(conversationId);
   if (meta) {
+    meta.lastAccessedAt = Date.now();
     conversations.set(conversationId, meta);
     return meta;
   }

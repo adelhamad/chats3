@@ -36,8 +36,8 @@ This is the **Chats3** service, a chat microservice.
 - **Error Handling**: Use Fastify's built-in error handling. Throw standard errors that Fastify can catch.
 
 ### Development Workflow
-- **Start Dev Server**: `yarn run dev` (starts app with PM2 in watch mode).
-- **Linting**: `yarn run lint` (ESLint).
+- **Start Dev Server**: `yarn dev` (starts app with PM2 in watch mode).
+- **Linting**: `yarn lint` (ESLint).
 
 ### Project Structure
 - This is a **backend-only** service with no UI components.

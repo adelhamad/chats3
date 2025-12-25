@@ -1,4 +1,6 @@
 // S3 Storage Service
+import crypto from "crypto";
+
 import {
   S3Client,
   PutObjectCommand,
@@ -75,37 +77,20 @@ export async function getConversationMeta(conversationId) {
 }
 
 // Append messages to NDJSON file
+// FIXED: Writes a unique file per batch to avoid S3 overwrite race conditions
 export async function appendMessages(conversationId, messages) {
   const date = new Date().toISOString().split("T")[0];
-  const key = `conversations/${conversationId}/messages/${date}/part-0001.ndjson`;
+  const timestamp = Date.now();
+  const uuid = crypto.randomUUID();
+  // Use a unique key for every batch to ensure atomicity
+  const key = `conversations/${conversationId}/messages/${date}/${timestamp}-${uuid}.ndjson`;
 
-  // Get existing content
-  let existingContent = "";
-  try {
-    const getCommand = new GetObjectCommand({
-      Bucket: bucketName,
-      Key: key,
-    });
-    const response = await s3Client.send(getCommand);
-    existingContent = await response.Body.transformToString();
-  } catch (error) {
-    if (error.name !== "NoSuchKey") {
-      throw error;
-    }
-    // File doesn't exist yet, that's fine
-  }
+  const content = messages.map((msg) => JSON.stringify(msg)).join("\n");
 
-  // Append new messages
-  const newLines = messages.map((msg) => JSON.stringify(msg)).join("\n");
-  const updatedContent = existingContent
-    ? `${existingContent}\n${newLines}`
-    : newLines;
-
-  // Put back to S3
   const putCommand = new PutObjectCommand({
     Bucket: bucketName,
     Key: key,
-    Body: updatedContent,
+    Body: content,
     ContentType: "application/x-ndjson",
   });
   await s3Client.send(putCommand);

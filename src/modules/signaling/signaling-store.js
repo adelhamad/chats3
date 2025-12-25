@@ -4,9 +4,31 @@ import { EventEmitter } from "events";
 
 export const signalingEmitter = new EventEmitter();
 const signalingStore = new Map(); // conversationId -> events[]
-const cursorStore = new Map(); // cursorToken -> { conversationId, index }
+const cursorStore = new Map(); // cursorToken -> { conversationId, index, createdAt }
 
 const EVENT_TTL = 60000; // 60 seconds
+
+// Cleanup interval (every minute)
+setInterval(() => {
+  const now = Date.now();
+
+  // Cleanup events and empty conversations
+  for (const [convId, events] of signalingStore.entries()) {
+    const validEvents = events.filter((e) => now - e.timestamp < EVENT_TTL);
+    if (validEvents.length === 0) {
+      signalingStore.delete(convId);
+    } else if (validEvents.length !== events.length) {
+      signalingStore.set(convId, validEvents);
+    }
+  }
+
+  // Cleanup cursors
+  for (const [token, cursor] of cursorStore.entries()) {
+    if (now - cursor.createdAt > EVENT_TTL) {
+      cursorStore.delete(token);
+    }
+  }
+}, 60000).unref();
 
 export function addSignalingEvent(conversationId, event) {
   if (!signalingStore.has(conversationId)) {
@@ -27,11 +49,6 @@ export function addSignalingEvent(conversationId, event) {
 
   // Emit event for SSE listeners
   signalingEmitter.emit(`event-${conversationId}`, signalingEvent);
-
-  // Clean up old events (TTL-based)
-  const now = Date.now();
-  const validEvents = events.filter((e) => now - e.timestamp < EVENT_TTL);
-  signalingStore.set(conversationId, validEvents);
 
   return signalingEvent;
 }
@@ -69,20 +86,8 @@ export function pollSignalingEvents(
   cursorStore.set(newCursorToken, {
     conversationId,
     index: newIndex,
+    createdAt: Date.now(),
   });
-
-  // Clean up old cursors (simple TTL)
-  const cursorCleanupThreshold = Date.now() - EVENT_TTL;
-  for (const [token, cursor] of cursorStore.entries()) {
-    const conversationEvents = signalingStore.get(cursor.conversationId) || [];
-    if (
-      cursor.index < conversationEvents.length &&
-      conversationEvents.length > 0 &&
-      conversationEvents[0].timestamp < cursorCleanupThreshold
-    ) {
-      cursorStore.delete(token);
-    }
-  }
 
   return {
     events: relevantEvents,
