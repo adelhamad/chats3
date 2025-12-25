@@ -114,6 +114,5 @@ export function sanitizeMessageBody(body) {
   return sanitizeHtml(body, {
     allowedTags: [], // No HTML tags allowed
     allowedAttributes: {}, // No attributes allowed
-    disallowedTagsMode: "recursiveEscape", // Escape tags instead of stripping content
   });
 }

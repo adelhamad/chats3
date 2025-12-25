@@ -11,10 +11,6 @@ setInterval(
   () => {
     const now = Date.now();
     for (const [id, conv] of conversations.entries()) {
-      // Use last accessed time if we had it, otherwise createdAt
-      // Since we don't track access time on conversations yet, let's just use a simple LRU-like
-      // or just rely on createdAt for now, but that's risky if it's active.
-      // Better: Add lastAccessedAt
       const lastAccessed =
         conv.lastAccessedAt || new Date(conv.createdAt).getTime();
       if (now - lastAccessed > CONVERSATION_TTL) {

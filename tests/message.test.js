@@ -11,7 +11,7 @@ describe("Message Module", () => {
     test("should remove HTML tags", () => {
       const input = "Hello <script>alert('xss')</script> World";
       const output = sanitizeMessageBody(input);
-      assert.strictEqual(output, "Hello alert('xss') World");
+      assert.strictEqual(output, "Hello  World");
     });
 
     test("should remove multiple HTML tags", () => {
@@ -67,7 +67,7 @@ describe("Message Module", () => {
     test("should handle special characters", () => {
       const input = "Text with & characters";
       const output = sanitizeMessageBody(input);
-      assert.strictEqual(output, input);
+      assert.strictEqual(output, "Text with &amp; characters");
     });
   });
 });

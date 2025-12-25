@@ -8,7 +8,7 @@
     "start": "pm2 start src/app.js --name chats3 && pm2 logs chats3",
     "dev": "pm2 start src/app.js --watch --name chats3 && pm2 logs",
     "stop": "pm2 stop chats3",
-    "test": "node tests/run.js",
+    "test": "NODE_ENV=test node tests/run.js",
     "lint": "eslint 'src/**/*.js'",
     "pm2": "pm2",
     "clean": "pm2 delete all",

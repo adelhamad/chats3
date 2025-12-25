@@ -16,7 +16,6 @@ import { envOptions } from "./config/index.js";
 import { adminRoutes } from "./modules/admin/index.js";
 import { parseIntegrators } from "./modules/auth/index.js";
 import { chatRoutes } from "./modules/chat/index.js";
-import exampleRoutes from "./modules/example/routes.js";
 import { initializeS3 } from "./modules/storage/index.js";
 import { viewRoutes } from "./modules/ui/index.js";
 
@@ -104,7 +103,6 @@ export async function buildApp(opts = {}) {
   app.register(viewRoutes); // No prefix for view routes
   app.register(chatRoutes, { prefix: "/api/v1" });
   app.register(adminRoutes, { prefix: "/api/v1" });
-  app.register(exampleRoutes, { prefix: "/api/v1" });
 
   return app;
 }
