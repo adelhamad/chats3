@@ -28,6 +28,7 @@ export default [
       "array-callback-return": 0,
       camelcase: 0,
       "sonarjs/no-commented-code": "off",
+      "sonarjs/pseudo-random": "off", // Math.random() acceptable for non-security use
       "no-empty-function": 2,
       "consistent-return": 0,
       "import/no-cycle": 0,
@@ -37,6 +38,7 @@ export default [
       "import/default": "off",
       "import/no-named-as-default": "off",
       "import/no-named-as-default-member": "off",
+      "import/named": "off", // Disabled due to false positives with some packages
       "import/order": [
         "warn",
         {

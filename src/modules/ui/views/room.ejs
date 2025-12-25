@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Room - Chats3</title>
+  <link rel="stylesheet" href="/public/css/style.css">
+</head>
+<body>
+  <div class="chat-container">
+    <div class="chat-header">
+      <h2>Conversation: <%= conversationId %></h2>
+      <div class="user-info">
+        <span id="userName"></span>
+        <span id="connectionStatus" class="status-disconnected">Disconnected</span>
+      </div>
+    </div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input">
+      <input type="text" id="messageInput" placeholder="Type a message..." />
+      <button id="sendButton">Send</button>
+      <button id="attachButton">Attach</button>
+      <input type="file" id="fileInput" style="display: none;" />
+    </div>
+  </div>
+  <script>
+    window.CONVERSATION_ID = '<%= conversationId %>';
+  </script>
+  <script src="/public/js/room.js"></script>
+</body>
+</html>
