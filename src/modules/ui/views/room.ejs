@@ -40,7 +40,19 @@
       </div>
     </div>
 
-    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-messages" id="chatMessages">
+      <div id="messagesLoader" style="display: flex; justify-content: center; align-items: center; height: 100%; color: #666; flex-direction: column; gap: 10px;">
+        <div class="spinner" style="width: 30px; height: 30px; border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        <span>Loading messages...</span>
+      </div>
+    </div>
+    
+    <style>
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
     
     <div id="previewContainer" style="display: none;"></div>
 
@@ -55,11 +67,11 @@
         <button id="audioBtn" style="display: none; background-color: #34495e; color: white;" title="Toggle Audio">🎤</button>
         <button id="videoBtn" style="display: none; background-color: #34495e; color: white;" title="Toggle Video">📷</button>
         <button id="screenBtn" style="display: none; background-color: #34495e; color: white;" title="Share Screen">🖥️</button>
+        <button id="recordButton" style="display: none; background-color: #e67e22; color: white;" title="Record Screen">⏺️</button>
+        <button id="stopRecordButton" style="display: none; background-color: #c0392b; color: white;" title="Stop Recording">⏹️</button>
         <button id="endCallButton" style="display: none; background-color: #e74c3c; color: white;" title="End Call">❌</button>
       </div>
 
-      <button id="recordButton" style="background-color: #e67e22; color: white;" title="Record Screen">⏺️</button>
-      <button id="stopRecordButton" style="display: none; background-color: #c0392b; color: white;" title="Stop Recording">⏹️</button>
       <input type="file" id="fileInput" style="display: none;" />
     </div>
   </div>

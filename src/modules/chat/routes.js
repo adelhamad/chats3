@@ -61,6 +61,7 @@ const signalingSchema = z.object({
     "answer",
     "ice-candidate",
     "new-message",
+    "end-call",
   ]),
   toUserId: z.string().nullish(),
   data: z.any(),
@@ -286,6 +287,7 @@ export default async function chatRoutes(fastify) {
           conversationId: request.session.conversationId,
           senderUserId: request.session.userId,
           senderDisplayName: request.session.displayName,
+          senderAvatarUrl: request.session.avatarUrl,
           senderRole: request.session.role,
         });
 

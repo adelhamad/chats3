@@ -9,12 +9,13 @@ const INTEGRATOR_SECRET = "test-secret-123";
 const server = http.createServer((req, res) => {
   if (req.url === "/") {
     // Helper to generate a signed embed URL
-    const getEmbedUrl = (userId, displayName) => {
+    const getEmbedUrl = (userId, displayName, avatarUrl) => {
       const ticket = {
         integratorId: INTEGRATOR_ID,
         conversationId: "test-room",
         userId: userId,
         displayName: displayName,
+        avatarUrl: avatarUrl,
         role: "user",
         origin: `http://localhost:${PORT}`,
         issuedAt: new Date().toISOString(),
@@ -31,8 +32,16 @@ const server = http.createServer((req, res) => {
       return `${CHATS3_URL}/embed?ticket=${encodeURIComponent(ticketJson)}&signature=${encodeURIComponent(signature)}`;
     };
 
-    const urlA = getEmbedUrl("user-alpha", "Alice (Alpha)");
-    const urlB = getEmbedUrl("user-beta", "Bob (Beta)");
+    const urlA = getEmbedUrl(
+      "user-alpha",
+      "Alice (Alpha)",
+      "https://api.dicebear.com/7.x/avataaars/svg?seed=Alice",
+    );
+    const urlB = getEmbedUrl(
+      "user-beta",
+      "Bob (Beta)",
+      "https://api.dicebear.com/7.x/avataaars/svg?seed=Bob",
+    );
 
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(`

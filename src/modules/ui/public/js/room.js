@@ -198,6 +198,7 @@ async function startCall() {
     audioBtn.style.display = "inline-block";
     videoBtn.style.display = "inline-block";
     screenBtn.style.display = "inline-block";
+    recordButton.style.display = "inline-block";
     endCallButton.style.display = "inline-block";
 
     // Add tracks to all existing peer connections
@@ -325,7 +326,12 @@ function stopScreenShare() {
 }
 
 // End Video Call
-function endCall() {
+async function endCall(isRemote = false) {
+  // Handle event object if called from event listener
+  if (typeof isRemote === "object") {
+    isRemote = false;
+  }
+
   if (localStream) {
     localStream.getTracks().forEach((track) => track.stop());
     localStream = null;
@@ -339,20 +345,50 @@ function endCall() {
   localVideo.srcObject = null;
   videoContainer.style.display = "none";
 
+  // Clear remote videos
+  remoteVideosDiv.innerHTML = "";
+
   callButton.style.display = "inline-block";
   audioBtn.style.display = "none";
   videoBtn.style.display = "none";
   screenBtn.style.display = "none";
+  recordButton.style.display = "none";
+  stopRecordButton.style.display = "none";
   endCallButton.style.display = "none";
 
-  // Remove tracks from peer connections (optional, but good practice)
-  // In a simple reload-based app, this might not be strictly necessary if we just stop sending.
-  // But to be clean, we could renegotiate. For this experiment, stopping tracks is enough.
-  // The remote side will see a frozen or black screen.
+  // Remove tracks from peer connections and renegotiate
+  for (const [peerId, pc] of peerConnections.entries()) {
+    const senders = pc.getSenders();
+    senders.forEach((sender) => {
+      if (sender.track && sender.track.kind !== "data") {
+        pc.removeTrack(sender);
+      }
+    });
 
-  // Ideally we should send a "stop-video" signal or renegotiate removing tracks.
-  // For simplicity:
-  window.location.reload(); // Easiest way to reset state for "experiment"
+    // If initiated locally, tell others to end call
+    if (!isRemote) {
+      try {
+        await sendSignalingEvent("end-call", peerId, {});
+      } catch (err) {
+        console.error("Error sending end-call signal:", err);
+      }
+    }
+
+    // Renegotiate to inform peer that tracks are removed (if connection is still alive)
+    // Only renegotiate if we are the initiator of the end-call to avoid glare/collision
+    if (!isRemote) {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await sendSignalingEvent("offer", peerId, offer);
+      } catch (err) {
+        console.error("Error renegotiating end call:", err);
+      }
+    }
+  }
+
+  // Force hide again to be sure
+  videoContainer.style.display = "none";
 }
 
 // Recording Logic
@@ -501,9 +537,14 @@ async function uploadFile(file) {
 const lastSeenMap = new Map(); // userId -> timestamp
 
 async function loadMessageHistory() {
+  const loader = document.getElementById("messagesLoader");
   try {
     const response = await apiFetch("/api/v1/messages");
     const data = await response.json();
+
+    if (loader) {
+      loader.remove();
+    }
 
     if (data.success && data.details) {
       data.details.forEach(displayMessage);
@@ -512,6 +553,9 @@ async function loadMessageHistory() {
     }
   } catch (error) {
     console.error("Failed to load history:", error);
+    if (loader) {
+      loader.innerHTML = "<span>Failed to load messages.</span>";
+    }
   }
 }
 
@@ -564,7 +608,7 @@ function updateAvatarStatus(userId, isOnline, lastSeenTime) {
   });
 }
 
-function getAvatar(name, userId) {
+function getAvatar(name, userId, avatarUrl) {
   const initials = name
     ? name
         .split(" ")
@@ -587,14 +631,27 @@ function getAvatar(name, userId) {
       div.title = formatLastSeen(lastSeen);
     }
   }
-  div.textContent = initials;
-  // Random background color based on name
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+
+  if (avatarUrl) {
+    const img = document.createElement("img");
+    img.src = avatarUrl;
+    img.alt = name;
+    img.style.width = "100%";
+    img.style.height = "100%";
+    img.style.objectFit = "cover";
+    img.style.borderRadius = "50%";
+    div.appendChild(img);
+    div.style.backgroundColor = "transparent";
+  } else {
+    div.textContent = initials;
+    // Random background color based on name
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+      hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+    div.style.backgroundColor = "#" + "00000".substring(0, 6 - c.length) + c;
   }
-  const c = (hash & 0x00ffffff).toString(16).toUpperCase();
-  div.style.backgroundColor = "#" + "00000".substring(0, 6 - c.length) + c;
   return div;
 }
 
@@ -640,7 +697,11 @@ function displayMessage(message) {
 
   if (!isOwn && !isSystem) {
     rowDiv.appendChild(
-      getAvatar(message.senderDisplayName || "User", message.senderUserId),
+      getAvatar(
+        message.senderDisplayName || "User",
+        message.senderUserId,
+        message.senderAvatarUrl,
+      ),
     );
   }
 
@@ -772,6 +833,12 @@ function renderFileAttachment(message, container) {
 
 // Send message
 async function sendMessage() {
+  // Prevent sending if less than 2 connected (no peers)
+  if (peerConnections.size === 0) {
+    alert("Cannot send message: Waiting for other participants to join.");
+    return;
+  }
+
   const body = messageInput.value.trim();
 
   if (!body && !selectedFile) {
@@ -947,6 +1014,11 @@ async function handleSignalingEvent(event) {
 
     case "peer-leave":
       closePeerConnection(fromUserId);
+      break;
+
+    case "end-call":
+      console.log(`Received end-call from ${fromUserId}`);
+      await endCall(true);
       break;
 
     case "new-message":
