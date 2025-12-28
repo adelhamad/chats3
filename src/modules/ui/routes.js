@@ -2,79 +2,58 @@
 import { validateTicket, parseIntegrators } from "../auth/index.js";
 import { createSession } from "../session/index.js";
 
+const getCookieOpts = (isProd) => ({
+  httpOnly: true,
+  path: "/",
+  maxAge: 86400,
+  secure: isProd,
+  sameSite: isProd ? "none" : "lax",
+});
+
 export default async function viewRoutes(fastify) {
   const integrators = parseIntegrators(fastify.config.INTEGRATORS_JSON);
+  const isProd = fastify.config.NODE_ENV === "production";
 
   // Embed handshake (GET)
   fastify.get("/embed", async (request, reply) => {
-    try {
-      const { ticket, signature } = request.query;
-
-      if (!ticket || !signature) {
-        return reply.status(400).send("Missing ticket or signature");
-      }
-
-      const validation = validateTicket(ticket, signature, integrators);
-      if (!validation.valid) {
-        return reply.status(403).send(validation.error);
-      }
-
-      const { userId, displayName, avatarUrl, role, conversationId } =
-        validation.data;
-
-      // Create session
-      const session = createSession({
-        userId,
-        displayName,
-        avatarUrl,
-        role,
-        conversationId,
-      });
-
-      // Set session cookie
-      const embedCookieOptions = {
-        httpOnly: true,
-        path: "/",
-        maxAge: 24 * 60 * 60, // 24 hours
-      };
-
-      if (fastify.config.NODE_ENV === "production") {
-        embedCookieOptions.secure = true;
-        embedCookieOptions.sameSite = "none";
-      } else {
-        embedCookieOptions.sameSite = "lax";
-      }
-
-      reply.setCookie("sessionId", session.sessionId, embedCookieOptions);
-
-      // Redirect to the room with sessionId in query for isolation (multi-tab/iframe support)
-      return reply.redirect(
-        `/room/${conversationId}?sessionId=${session.sessionId}`,
-      );
-    } catch (error) {
-      fastify.log.error(error);
-      return reply.status(500).send("Internal Server Error");
+    const { ticket, signature } = request.query;
+    if (!ticket || !signature) {
+      return reply.status(400).send("Missing ticket or signature");
     }
+
+    const validation = validateTicket(ticket, signature, integrators);
+    if (!validation.valid) {
+      return reply.status(403).send(validation.error);
+    }
+
+    const { userId, displayName, avatarUrl, role, conversationId } =
+      validation.data;
+    const session = createSession({
+      userId,
+      displayName,
+      avatarUrl,
+      role,
+      conversationId,
+    });
+    reply.setCookie("sessionId", session.sessionId, getCookieOpts(isProd));
+    return reply.redirect(
+      `/room/${conversationId}?sessionId=${session.sessionId}`,
+    );
   });
 
   // Join page
-  fastify.get("/join", async (request, reply) => {
-    return reply.view("join.ejs");
-  });
+  fastify.get("/join", (request, reply) => reply.view("join.ejs"));
 
   // Room page
-  fastify.get("/room/:conversationId", async (request, reply) => {
-    const { conversationId } = request.params;
-    return reply.view("room.ejs", { conversationId });
+  fastify.get("/room/:conversationId", (request, reply) => {
+    return reply.view("room.ejs", {
+      conversationId: request.params.conversationId,
+    });
   });
 
   // Admin page
-  fastify.get("/admin", async (request, reply) => {
-    return reply.view("admin.ejs");
-  });
+  fastify.get("/admin", (request, reply) => reply.view("admin.ejs"));
 
   // Redirect root to join
-  fastify.get("/", async (request, reply) => {
-    return reply.redirect("/join");
-  });
+  fastify.get("/", (request, reply) => reply.redirect("/join"));
 }

@@ -1,46 +1,53 @@
 // Standardized API response helpers
 import crypto from "crypto";
 
-import { z } from "zod";
-
-// Meta schema
-export const MetaSchema = z.object({
-  requestId: z.uuid(),
-  timestamp: z.iso.datetime(),
-});
-
-// API Response schema (for validation)
-export const ApiResponseSchema = z.object({
-  success: z.boolean(),
-  message: z.string().optional(),
-  details: z.any().optional(),
-  meta: MetaSchema,
-});
-
-// Generate meta
-const withMeta = (data) => ({
-  ...data,
-  meta: {
+/**
+ * Generate response metadata
+ * @returns {object} Meta object with requestId and timestamp
+ */
+function getMeta() {
+  return {
     requestId: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
-  },
-});
+  };
+}
 
-// Success response transformer
-// Usage: success.parse({ message: "Created", details: { id: 1 } })
-export const success = z
-  .object({
-    message: z.string().optional().default(""),
-    details: z.any().optional(),
-  })
-  .transform((data) => withMeta({ success: true, ...data }));
+/**
+ * Create a success response
+ * @param {string} message - Response message
+ * @param {any} details - Response payload
+ * @returns {object} Standardized success response
+ */
+export function successResponse(message = "", details = undefined) {
+  return {
+    success: true,
+    message,
+    details,
+    meta: getMeta(),
+  };
+}
 
-// Error response transformer
-// Usage: fail.parse({ message: "Not found" })
-// Usage: fail.parse({ message: "Validation failed", details: errors })
-export const fail = z
-  .object({
-    message: z.string(),
-    details: z.any().optional(),
-  })
-  .transform((data) => withMeta({ success: false, ...data }));
+/**
+ * Create an error response
+ * @param {string} message - Error message
+ * @param {any} details - Error details (e.g., validation errors)
+ * @returns {object} Standardized error response
+ */
+export function errorResponse(message, details = undefined) {
+  return {
+    success: false,
+    message,
+    details,
+    meta: getMeta(),
+  };
+}
+
+// Backward compatible exports (wraps new functions with .parse() interface)
+// This allows gradual migration - can be removed once all code is updated
+export const success = {
+  parse: ({ message = "", details } = {}) => successResponse(message, details),
+};
+
+export const fail = {
+  parse: ({ message, details } = {}) => errorResponse(message, details),
+};

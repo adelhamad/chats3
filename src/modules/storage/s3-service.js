@@ -114,24 +114,23 @@ export async function getMessages(conversationId, limit = 100) {
     obj.Key.endsWith(".ndjson"),
   ).sort((a, b) => b.Key.localeCompare(a.Key)); // Most recent first
 
-  const allMessages = [];
-  for (const file of messageFiles) {
-    const getCommand = new GetObjectCommand({
-      Bucket: bucketName,
-      Key: file.Key,
-    });
-    const response = await s3Client.send(getCommand);
-    const content = await response.Body.transformToString();
-    const messages = content
-      .split("\n")
-      .filter((line) => line.trim())
-      .map((line) => JSON.parse(line));
-    allMessages.push(...messages);
+  // Fetch all files in parallel for better performance
+  const fileContents = await Promise.all(
+    messageFiles.map(async (file) => {
+      const getCommand = new GetObjectCommand({
+        Bucket: bucketName,
+        Key: file.Key,
+      });
+      const response = await s3Client.send(getCommand);
+      const content = await response.Body.transformToString();
+      return content
+        .split("\n")
+        .filter((line) => line.trim())
+        .map((line) => JSON.parse(line));
+    }),
+  );
 
-    if (allMessages.length >= limit) {
-      break;
-    }
-  }
+  const allMessages = fileContents.flat();
 
   // Return most recent messages first, limited
   // But wait, the frontend expects chronological order (oldest first) to append to the bottom.

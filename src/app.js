@@ -94,6 +94,20 @@ export async function buildApp(opts = {}) {
     }
   });
 
+  // Global error handler - removes need for try-catch in every route
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error(error);
+    const statusCode = error.statusCode || 400;
+    return reply.status(statusCode).send({
+      success: false,
+      message: error.message,
+      meta: {
+        requestId: request.id,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  });
+
   // Health check endpoint
   app.get("/health", async () => {
     return { status: "ok", service: "chats3" };

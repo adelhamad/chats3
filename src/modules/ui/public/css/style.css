@@ -130,15 +130,42 @@ button:hover {
 }
 
 .status-connected {
-  color: #a2fca2; /* Light green for status on blue bg */
-  font-weight: 500;
-  font-size: 0.85rem;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.8rem;
+  background: rgba(46, 204, 113, 0.25);
+  padding: 4px 10px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .status-disconnected {
-  color: #ffcccc;
-  font-weight: 500;
-  font-size: 0.85rem;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.8rem;
+  background: rgba(231, 76, 60, 0.25);
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+.pulse-dot {
+  width: 8px;
+  height: 8px;
+  background: #2ecc71;
+  border-radius: 50%;
+  display: inline-block;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.pulse-dot.yellow {
+  background: #f39c12;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
 }
 
 .chat-messages {
