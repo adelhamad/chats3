@@ -24,6 +24,12 @@ const peerDisplayNames = new Map(); // peerId -> displayName
 // Queue ICE candidates until remote description is set
 const pendingIceCandidates = new Map(); // peerId -> candidate[]
 
+// Track known participants from room-state for reconnection
+let knownParticipants = new Map(); // peerId -> { displayName }
+
+// Heartbeat interval for checking stale connections
+let connectionHeartbeat = null;
+
 // Send signaling event
 export async function sendSignalingEvent(type, toUserId, data) {
   await apiFetch("/api/v1/signaling", {
@@ -41,7 +47,8 @@ export function updateConnectionStatus() {
   const isSSEConnected =
     window.signalingEventSource?.readyState === EventSource.OPEN;
 
-  const onlineCount = peerConnections.size + 1;
+  // Use knownParticipants for accurate count (includes self)
+  const onlineCount = knownParticipants.size;
   const peersText = onlineCount > 1 ? `${onlineCount} in room` : "";
 
   // Update avatar status for connected peers
@@ -570,16 +577,59 @@ function isPeerConnectionHealthy(peerId) {
   return state === "new" || state === "connecting" || state === "connected";
 }
 
+// Start heartbeat to check for stale connections
+function startConnectionHeartbeat() {
+  if (connectionHeartbeat) {
+    clearInterval(connectionHeartbeat);
+  }
+
+  // Check every 5 seconds for peers that should be connected but aren't
+  connectionHeartbeat = setInterval(async () => {
+    // Only run if SSE is connected
+    if (window.signalingEventSource?.readyState !== EventSource.OPEN) {
+      return;
+    }
+
+    // Check each known participant
+    for (const peerId of knownParticipants.keys()) {
+      if (peerId === sessionInfo.userId) {
+        continue;
+      }
+
+      const shouldInitiate = sessionInfo.userId < peerId;
+      const hasHealthyConnection = isPeerConnectionHealthy(peerId);
+
+      // If we should initiate and don't have a healthy connection, try to connect
+      if (shouldInitiate && !hasHealthyConnection) {
+        console.log(`Heartbeat: Reconnecting to ${peerId}`);
+        // Clean up any stale connection first
+        if (peerConnections.has(peerId)) {
+          closePeerConnection(peerId);
+        }
+        await createPeerConnection(peerId, true);
+      }
+    }
+  }, 5000);
+}
+
+function stopConnectionHeartbeat() {
+  if (connectionHeartbeat) {
+    clearInterval(connectionHeartbeat);
+    connectionHeartbeat = null;
+  }
+}
+
 // Handle peer-join event
 async function handlePeerJoin(fromUserId, data) {
   if (fromUserId === sessionInfo.userId) {
     return;
   }
 
-  // Store peer's displayName for video labels
+  // Store peer's displayName for video labels and known participants
   if (data?.displayName) {
     peerDisplayNames.set(fromUserId, data.displayName);
   }
+  knownParticipants.set(fromUserId, { displayName: data?.displayName });
 
   // Clean up stale connection before deciding to initiate
   if (peerConnections.has(fromUserId) && !isPeerConnectionHealthy(fromUserId)) {
@@ -617,6 +667,14 @@ async function handleRoomState(data) {
 
   console.log("Received room state:", participants);
 
+  // Update known participants list (for heartbeat reconnection)
+  knownParticipants.clear();
+  for (const participant of participants) {
+    knownParticipants.set(participant.userId, {
+      displayName: participant.displayName,
+    });
+  }
+
   // Collect peers we need to connect to
   const peersToConnect = [];
 
@@ -644,6 +702,9 @@ async function handleRoomState(data) {
     console.log(`Room state: Initiating connection to ${peerId}`);
     await createPeerConnection(peerId, true);
   }
+
+  // Start heartbeat to detect and fix stale connections
+  startConnectionHeartbeat();
 
   // After processing room state, announce our presence to notify
   // higher-ID peers that we're ready for their offers
@@ -688,6 +749,8 @@ async function handleSignalingEvent(event) {
       break;
     case "peer-leave":
       closePeerConnection(fromUserId);
+      knownParticipants.delete(fromUserId);
+      peerDisplayNames.delete(fromUserId);
       break;
     case "end-call":
       console.log(`Received end-call from ${fromUserId}`);
@@ -745,6 +808,7 @@ export function setupSignalingSSE() {
     console.error("SSE error:", error);
     eventSource.close();
     window.signalingEventSource = null;
+    stopConnectionHeartbeat();
     updateConnectionStatus();
 
     // Limit reconnection attempts

@@ -448,24 +448,37 @@ button:hover {
     padding: 1px 3px;
   }
   
-  /* Keep chat input usable on mobile with video active */
+  /* Keep chat input usable on mobile */
   .chat-input {
     padding: 8px;
-    gap: 5px;
+    gap: 8px;
+    flex-wrap: wrap;
   }
   
   .chat-input textarea {
-    min-width: 80px;
-    font-size: 14px;
+    flex: 1 1 100%;
+    order: -1;
+    min-width: 0;
+    font-size: 16px; /* Prevent iOS zoom */
+  }
+  
+  #attachButton {
+    order: 0;
+  }
+  
+  #sendButton {
+    order: 1;
   }
   
   #callControls {
-    flex-wrap: wrap;
-    gap: 3px;
+    order: 2;
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    gap: 5px;
   }
   
   #callControls button {
-    padding: 6px 8px;
+    padding: 8px 10px;
     font-size: 14px;
   }
 }

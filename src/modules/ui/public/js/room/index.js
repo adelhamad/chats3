@@ -104,6 +104,13 @@ async function init() {
 
     document.addEventListener("paste", handlePaste);
 
+    // Listen for leave message from parent (for iframe scenarios)
+    window.addEventListener("message", (event) => {
+      if (event.data?.type === "leave") {
+        leaveConversationSilent();
+      }
+    });
+
     initSearch();
   } catch (error) {
     console.error("Initialization error:", error);
@@ -113,13 +120,18 @@ async function init() {
 
 async function leaveConversation() {
   if (confirm("Are you sure you want to leave the conversation?")) {
-    try {
-      await apiFetch("/api/v1/leave", { method: "POST" });
-      window.location.href = `/join?conversationId=${window.CONVERSATION_ID}`;
-    } catch (error) {
-      console.error("Error leaving conversation:", error);
-      window.location.href = `/join?conversationId=${window.CONVERSATION_ID}`;
-    }
+    await leaveConversationSilent();
+  }
+}
+
+// Leave without confirmation (for iframe/programmatic leave)
+async function leaveConversationSilent() {
+  try {
+    await apiFetch("/api/v1/leave", { method: "POST" });
+    window.location.href = `/join?conversationId=${window.CONVERSATION_ID}`;
+  } catch (error) {
+    console.error("Error leaving conversation:", error);
+    window.location.href = `/join?conversationId=${window.CONVERSATION_ID}`;
   }
 }
 

@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import http from "http";
 
 const PORT = 4000;
@@ -223,8 +222,20 @@ const server = http.createServer((req, res) => {
           function removePeer(id) {
             const el = document.getElementById(id);
             if (el) {
-              el.remove();
-              updatePeerCount();
+              // Try to notify the iframe to leave before removing
+              const iframe = el.querySelector('iframe');
+              if (iframe && iframe.contentWindow) {
+                try {
+                  iframe.contentWindow.postMessage({ type: 'leave' }, '*');
+                } catch (e) {
+                  // Cross-origin, can't access
+                }
+              }
+              // Give a moment for the leave to process, then remove
+              setTimeout(() => {
+                el.remove();
+                updatePeerCount();
+              }, 100);
             }
           }
           
@@ -253,6 +264,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(\`Iframe test server running at http://localhost:\${PORT}\`);
-  console.log(\`Make sure Chats3 is running at \${CHATS3_URL}\`);
+  console.log(`Iframe test server running at http://localhost:${PORT}`);
+  console.log(`Make sure Chats3 is running at ${CHATS3_URL}`);
 });
