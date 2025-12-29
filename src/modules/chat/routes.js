@@ -439,14 +439,17 @@ export default async function chatRoutes(fastify) {
         clearInterval(heartbeat);
 
         // Remove from active participants
-        removeParticipant(conversationId, userId);
+        // Only broadcast leave if this was the last connection for this user
+        const isFullyDisconnected = removeParticipant(conversationId, userId);
 
-        // Broadcast peer-leave when SSE disconnects (tab close, network loss, etc.)
-        addSignalingEvent(conversationId, {
-          type: "peer-leave",
-          fromUserId: userId,
-          data: {},
-        });
+        if (isFullyDisconnected) {
+          // Broadcast peer-leave when SSE disconnects (tab close, network loss, etc.)
+          addSignalingEvent(conversationId, {
+            type: "peer-leave",
+            fromUserId: userId,
+            data: {},
+          });
+        }
       });
 
       // eslint-disable-next-line no-empty-function

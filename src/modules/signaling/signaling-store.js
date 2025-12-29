@@ -5,7 +5,7 @@ import { EventEmitter } from "events";
 export const signalingEmitter = new EventEmitter();
 const signalingStore = new Map(); // conversationId -> events[]
 const cursorStore = new Map(); // cursorToken -> { conversationId, index, createdAt }
-const participantsStore = new Map(); // conversationId -> Set<userId>
+const participantsStore = new Map(); // conversationId -> Map<userId, connectionCount>
 
 const EVENT_TTL = 60000; // 60 seconds
 
@@ -40,22 +40,33 @@ setInterval(() => {
 
 export function addParticipant(conversationId, userId) {
   if (!participantsStore.has(conversationId)) {
-    participantsStore.set(conversationId, new Set());
+    participantsStore.set(conversationId, new Map());
   }
-  participantsStore.get(conversationId).add(userId);
+  const participants = participantsStore.get(conversationId);
+  const count = participants.get(userId) || 0;
+  participants.set(userId, count + 1);
 }
 
 export function removeParticipant(conversationId, userId) {
   if (participantsStore.has(conversationId)) {
-    participantsStore.get(conversationId).delete(userId);
+    const participants = participantsStore.get(conversationId);
+    const count = participants.get(userId) || 0;
+    if (count > 1) {
+      participants.set(userId, count - 1);
+      return false; // Still connected
+    } else {
+      participants.delete(userId);
+      return true; // Fully disconnected
+    }
   }
+  return false;
 }
 
 export function getParticipants(conversationId) {
   if (!participantsStore.has(conversationId)) {
     return [];
   }
-  return Array.from(participantsStore.get(conversationId));
+  return Array.from(participantsStore.get(conversationId).keys());
 }
 
 export function addSignalingEvent(conversationId, event) {
