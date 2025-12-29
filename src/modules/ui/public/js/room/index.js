@@ -64,6 +64,12 @@ async function init() {
       $.callButton.style.display = "none";
       $.recordButton.style.display = "none";
       $.leaveButton.style.display = "none";
+    } else {
+      // Standalone mode: Leave conversation on refresh/close to ensure clean state
+      window.addEventListener("beforeunload", () => {
+        // Use keepalive to ensure request completes even if page unloads
+        fetch("/api/v1/leave", { method: "POST", keepalive: true });
+      });
     }
 
     await loadMessageHistory();

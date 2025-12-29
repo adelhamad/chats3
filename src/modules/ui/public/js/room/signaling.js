@@ -307,6 +307,9 @@ export async function createPeerConnection(peerId, initiator) {
 
   pc.onconnectionstatechange = () => {
     console.log(`Connection state with ${peerId}:`, pc.connectionState);
+    if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+      closePeerConnection(peerId);
+    }
     updateConnectionStatus();
   };
 
@@ -533,11 +536,7 @@ async function handleRoomState(data) {
   console.log("Received room state:", participants);
 
   for (const participant of participants) {
-    // Handle both object (new) and string (legacy/fallback) formats
-    const peerId =
-      typeof participant === "object" ? participant.userId : participant;
-    const displayName =
-      typeof participant === "object" ? participant.displayName : undefined;
+    const { userId: peerId, displayName } = participant;
 
     if (peerId === sessionInfo.userId) {
       continue;
