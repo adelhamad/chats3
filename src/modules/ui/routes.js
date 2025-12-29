@@ -1,6 +1,6 @@
 // View routes for serving pages
 import { validateTicket, getIntegratorsMap } from "../auth/index.js";
-import { createSession } from "../session/index.js";
+import { createSession, getSessionsByConversation } from "../session/index.js";
 
 const getCookieOpts = (isProd) => ({
   httpOnly: true,
@@ -28,13 +28,29 @@ export default async function viewRoutes(fastify) {
 
     const { userId, displayName, avatarUrl, role, conversationId } =
       validation.data;
-    const session = createSession({
-      userId,
-      displayName,
-      avatarUrl,
-      role,
-      conversationId,
-    });
+
+    // Reuse existing session if available to prevent session proliferation
+    const existingSessions = getSessionsByConversation(conversationId);
+    const existingSession = existingSessions.find((s) => s.userId === userId);
+
+    let session;
+    if (existingSession) {
+      session = existingSession;
+      // Update details
+      session.displayName = displayName;
+      session.avatarUrl = avatarUrl;
+      session.role = role;
+      session.lastActiveAt = Date.now();
+    } else {
+      session = createSession({
+        userId,
+        displayName,
+        avatarUrl,
+        role,
+        conversationId,
+      });
+    }
+
     reply.setCookie("sessionId", session.sessionId, getCookieOpts(isProd));
     return reply.redirect(
       `/room/${conversationId}?sessionId=${session.sessionId}`,

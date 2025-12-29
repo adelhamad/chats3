@@ -10,13 +10,21 @@ if (urlParams.has("joinCode")) {
   document.getElementById("joinCode").value = urlParams.get("joinCode");
 }
 
+// Pre-fill from localStorage if available
+const savedDisplayName = localStorage.getItem("chats3_displayName");
+if (savedDisplayName && !document.getElementById("displayName").value) {
+  document.getElementById("displayName").value = savedDisplayName;
+}
+
 document.getElementById("joinForm").addEventListener("submit", async (e) => {
   e.preventDefault();
 
   const conversationId = document.getElementById("conversationId").value;
   const joinCode = document.getElementById("joinCode").value;
   const displayName = document.getElementById("displayName").value;
-  const avatarUrl = document.getElementById("avatarUrl").value;
+
+  // Save to localStorage for convenience
+  localStorage.setItem("chats3_displayName", displayName);
 
   const errorDiv = document.getElementById("error");
   errorDiv.style.display = "none";
@@ -31,7 +39,6 @@ document.getElementById("joinForm").addEventListener("submit", async (e) => {
         conversationId,
         joinCode,
         displayName,
-        avatarUrl: avatarUrl || undefined,
       }),
     });
 

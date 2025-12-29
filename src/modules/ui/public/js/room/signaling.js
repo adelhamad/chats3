@@ -612,9 +612,13 @@ const SSE_INITIAL_DELAY = 2000; // 2 seconds
 export function setupSignalingSSE() {
   console.log("Setting up SSE connection...");
   // Use EventSource with credentials for cookie-based session
-  const eventSource = new EventSource("/api/v1/signaling", {
-    withCredentials: true,
-  });
+  // Also append sessionId to query param to ensure correct session in multi-user/iframe scenarios
+  const eventSource = new EventSource(
+    `/api/v1/signaling?sessionId=${sessionInfo.sessionId}`,
+    {
+      withCredentials: true,
+    },
+  );
 
   eventSource.onopen = () => {
     console.log("SSE connection opened");
