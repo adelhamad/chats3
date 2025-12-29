@@ -36,11 +36,21 @@ export async function startCall() {
     $.endCallButton.style.display = "inline-block";
 
     // Add tracks to all existing peer connections
+    // The onnegotiationneeded handler will trigger renegotiation automatically
     for (const [peerId, pc] of peerConnections.entries()) {
-      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      await sendSignalingEvent("offer", peerId, offer);
+      console.log(`Adding tracks to peer connection with ${peerId}`);
+      stream.getTracks().forEach((track) => {
+        // Check if track is already added
+        const senders = pc.getSenders();
+        const existingSender = senders.find(
+          (s) => s.track?.kind === track.kind,
+        );
+        if (!existingSender) {
+          pc.addTrack(track, stream);
+        } else if (existingSender.track !== track) {
+          existingSender.replaceTrack(track);
+        }
+      });
     }
   } catch (error) {
     console.error("Error starting call:", error);

@@ -64,13 +64,10 @@ async function init() {
       $.callButton.style.display = "none";
       $.recordButton.style.display = "none";
       $.leaveButton.style.display = "none";
-    } else {
-      // Standalone mode: Leave conversation on refresh/close to ensure clean state
-      window.addEventListener("beforeunload", () => {
-        // Use keepalive to ensure request completes even if page unloads
-        fetch("/api/v1/leave", { method: "POST", keepalive: true });
-      });
     }
+    // Note: We don't call /leave on beforeunload anymore.
+    // The server handles disconnection via SSE close event.
+    // This allows users to refresh the page without losing their session.
 
     await loadMessageHistory();
     scrollToBottom();

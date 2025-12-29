@@ -354,9 +354,14 @@ export async function createPeerConnection(peerId, initiator) {
   };
 
   pc.ontrack = (event) => {
-    console.log(`Received remote track from ${peerId}`, event.streams);
+    console.log(
+      `Received remote track from ${peerId}:`,
+      event.track.kind,
+      event.streams,
+    );
     const stream = event.streams[0];
     if (!stream) {
+      console.warn(`No stream in ontrack event from ${peerId}`);
       return;
     }
 
@@ -364,12 +369,14 @@ export async function createPeerConnection(peerId, initiator) {
     if (!videoEl) {
       const wrapper = document.createElement("div");
       wrapper.className = "video-wrapper";
+      wrapper.id = `video-wrapper-${peerId}`;
       wrapper.style.cssText = "position:relative;min-width:200px";
 
       videoEl = document.createElement("video");
       videoEl.id = `remote-video-${peerId}`;
       videoEl.autoplay = true;
       videoEl.playsInline = true;
+      videoEl.muted = false;
       videoEl.style.cssText =
         "width:200px;height:150px;background:#000;border-radius:8px;object-fit:cover";
 
@@ -385,7 +392,31 @@ export async function createPeerConnection(peerId, initiator) {
       $.remoteVideosDiv.appendChild(wrapper);
       $.videoContainer.style.display = "block";
     }
-    videoEl.srcObject = stream;
+
+    // Always update the srcObject - this handles track updates
+    if (videoEl.srcObject !== stream) {
+      videoEl.srcObject = stream;
+    }
+
+    // Ensure video plays (some browsers require user interaction)
+    videoEl.play().catch((err) => {
+      console.warn(`Could not auto-play video from ${peerId}:`, err);
+    });
+  };
+
+  // Handle renegotiation - when tracks are added/removed
+  pc.onnegotiationneeded = async () => {
+    console.log(`Negotiation needed with ${peerId}`);
+    // Only the initiator (lower userId) should create offers during renegotiation
+    if (sessionInfo.userId < peerId) {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await sendSignalingEvent("offer", peerId, offer);
+      } catch (err) {
+        console.error(`Renegotiation failed with ${peerId}:`, err);
+      }
+    }
   };
 
   if (localStream) {
@@ -421,17 +452,10 @@ async function handleOffer(peerId, offer) {
     await pc.setLocalDescription({ type: "rollback" });
   }
 
-  // If we have an existing stable connection, ignore the offer
-  // (this can happen during reconnection races)
-  if (
-    pc &&
-    pc.signalingState === "stable" &&
-    pc.connectionState === "connected"
-  ) {
-    console.log(
-      `Ignoring offer from ${peerId}: already have stable connection`,
-    );
-    return;
+  // For renegotiation: if we have a stable connection, accept the offer
+  // This allows track additions/removals to be negotiated
+  if (pc && pc.signalingState === "stable") {
+    console.log(`Renegotiation offer from ${peerId}, processing...`);
   }
 
   if (!pc) {
