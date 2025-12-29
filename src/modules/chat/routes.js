@@ -465,13 +465,8 @@ export default async function chatRoutes(fastify) {
                 fromUserId: userId,
                 data: {},
               });
-            } else {
-              request.log.info({
-                msg: "User reconnected during grace period",
-                userId,
-              });
             }
-          }, 2000); // 2 second grace period for refresh
+          }, 3000); // 3 second grace period for refresh
         }
       });
 

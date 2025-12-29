@@ -102,7 +102,6 @@ async function init() {
 
     $.leaveButton.addEventListener("click", leaveConversation);
 
-    window.addEventListener("beforeunload", handleUnload);
     document.addEventListener("paste", handlePaste);
 
     initSearch();
@@ -122,10 +121,6 @@ async function leaveConversation() {
       window.location.href = `/join?conversationId=${window.CONVERSATION_ID}`;
     }
   }
-}
-
-function handleUnload() {
-  // Note: peer-leave is handled automatically by SSE connection close on server
 }
 
 // Show upload progress indicator

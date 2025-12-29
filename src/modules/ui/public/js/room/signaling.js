@@ -319,32 +319,12 @@ export async function createPeerConnection(peerId, initiator) {
 
   pc.onconnectionstatechange = () => {
     console.log(`Connection state with ${peerId}:`, pc.connectionState);
-    if (pc.connectionState === "failed") {
-      closePeerConnection(peerId);
-      // Retry connection if we're the initiator (lower userId)
-      if (sessionInfo.userId < peerId) {
-        console.log(`Connection failed with ${peerId}, retrying in 2s...`);
-        setTimeout(() => {
-          // Only retry if we still don't have a connection and SSE is open
-          if (
-            !peerConnections.has(peerId) &&
-            window.signalingEventSource?.readyState === EventSource.OPEN
-          ) {
-            createPeerConnection(peerId, true);
-          }
-        }, 2000);
-      }
-    } else if (pc.connectionState === "closed") {
+    if (pc.connectionState === "failed" || pc.connectionState === "closed") {
       closePeerConnection(peerId);
     } else if (pc.connectionState === "disconnected") {
-      // Disconnected state can recover, wait before cleaning up
-      console.log(
-        `Connection disconnected with ${peerId}, waiting for recovery...`,
-      );
+      // Disconnected state can recover, wait 5s before cleaning up
       setTimeout(() => {
-        // Check if still in disconnected state
         if (pc.connectionState === "disconnected") {
-          console.log(`Connection still disconnected with ${peerId}, closing`);
           closePeerConnection(peerId);
         }
       }, 5000);
@@ -369,22 +349,18 @@ export async function createPeerConnection(peerId, initiator) {
       const wrapper = document.createElement("div");
       wrapper.className = "video-wrapper";
       wrapper.id = `video-wrapper-${peerId}`;
-      wrapper.style.cssText = "position:relative;min-width:200px";
 
       videoEl = document.createElement("video");
       videoEl.id = `remote-video-${peerId}`;
       videoEl.autoplay = true;
       videoEl.playsInline = true;
       videoEl.muted = false;
-      videoEl.style.cssText =
-        "width:200px;height:150px;background:#000;border-radius:8px;object-fit:cover";
 
       const label = document.createElement("span");
       label.id = `remote-label-${peerId}`;
+      label.className = "video-label";
       const displayName = peerDisplayNames.get(peerId) || "User";
       label.textContent = displayName;
-      label.style.cssText =
-        "position:absolute;bottom:5px;left:5px;color:white;font-size:12px;background:rgba(0,0,0,0.5);padding:2px 5px;border-radius:4px";
 
       wrapper.appendChild(videoEl);
       wrapper.appendChild(label);
@@ -631,10 +607,8 @@ function handleNewMessage(data) {
   }
 }
 
-// Track if we've already sent peer-join to prevent duplicates
-let peerJoinSent = false;
-
 // Handle room-state event (initial participant list)
+// This is called once when SSE connects, containing all current participants
 async function handleRoomState(data) {
   const { participants } = data;
   if (!participants || !Array.isArray(participants)) {
@@ -642,6 +616,9 @@ async function handleRoomState(data) {
   }
 
   console.log("Received room state:", participants);
+
+  // Collect peers we need to connect to
+  const peersToConnect = [];
 
   for (const participant of participants) {
     const { userId: peerId, displayName } = participant;
@@ -655,26 +632,27 @@ async function handleRoomState(data) {
       peerDisplayNames.set(peerId, displayName);
     }
 
-    // Clean up stale connection before deciding to initiate
-    if (peerConnections.has(peerId) && !isPeerConnectionHealthy(peerId)) {
-      console.log(
-        `Room state: Peer ${peerId} has stale connection, cleaning up`,
-      );
-      closePeerConnection(peerId);
+    // Check if we need to initiate connection
+    // Lower userId always initiates to prevent glare
+    if (sessionInfo.userId < peerId && !isPeerConnectionHealthy(peerId)) {
+      peersToConnect.push(peerId);
     }
-
-    // If I have a lower ID, I must initiate connection to existing peers
-    if (sessionInfo.userId < peerId) {
-      if (!peerConnections.has(peerId)) {
-        console.log(
-          `Room state: Found peer ${peerId}. We initiate (lower ID).`,
-        );
-        await createPeerConnection(peerId, true);
-      }
-    }
-    // Note: Higher ID users don't need to send peer-join here
-    // The SSE onopen handler already sends one peer-join for everyone
   }
+
+  // Connect to peers sequentially to avoid race conditions
+  for (const peerId of peersToConnect) {
+    console.log(`Room state: Initiating connection to ${peerId}`);
+    await createPeerConnection(peerId, true);
+  }
+
+  // After processing room state, announce our presence to notify
+  // higher-ID peers that we're ready for their offers
+  // This is the ONLY place we send peer-join
+  console.log("Sending peer-join after room-state");
+  await sendSignalingEvent("peer-join", undefined, {
+    userId: sessionInfo.userId,
+    displayName: sessionInfo.displayName,
+  });
 }
 
 // Handle signaling event
@@ -724,10 +702,15 @@ async function handleSignalingEvent(event) {
 // Setup SSE with reconnection
 let sseReconnectAttempts = 0;
 const SSE_MAX_RECONNECT_ATTEMPTS = 5;
-const SSE_INITIAL_DELAY = 2000; // 2 seconds
-let isFirstConnection = true;
+const SSE_INITIAL_DELAY = 1000; // 1 second
 
 export function setupSignalingSSE() {
+  // Close any existing SSE connection first
+  if (window.signalingEventSource) {
+    window.signalingEventSource.close();
+    window.signalingEventSource = null;
+  }
+
   console.log("Setting up SSE connection...");
   // Use EventSource with credentials for cookie-based session
   // Also append sessionId to query param to ensure correct session in multi-user/iframe scenarios
@@ -740,38 +723,9 @@ export function setupSignalingSSE() {
 
   eventSource.onopen = () => {
     console.log("SSE connection opened");
-    const wasReconnect = !isFirstConnection;
-    isFirstConnection = false;
     sseReconnectAttempts = 0; // Reset on successful connection
     updateConnectionStatus();
-
-    // On reconnection, close stale peer connections so room-state can reinitiate them
-    if (wasReconnect) {
-      console.log("SSE reconnected, cleaning up stale peer connections");
-      for (const [peerId] of peerConnections) {
-        if (!isPeerConnectionHealthy(peerId)) {
-          closePeerConnection(peerId);
-        }
-      }
-      // Reset peer-join flag on reconnect to allow re-announcement
-      peerJoinSent = false;
-    }
-
-    // Send peer-join once after receiving room-state
-    // The room-state comes from SSE before any signaling events
-    // We wait a bit to ensure room-state is processed first
-    if (!peerJoinSent) {
-      setTimeout(() => {
-        if (!peerJoinSent) {
-          peerJoinSent = true;
-          console.log("Sending peer-join announcement");
-          sendSignalingEvent("peer-join", undefined, {
-            userId: sessionInfo.userId,
-            displayName: sessionInfo.displayName,
-          });
-        }
-      }, 500);
-    }
+    // Note: peer-join is sent after room-state is processed in handleRoomState
   };
 
   eventSource.onmessage = async (event) => {
