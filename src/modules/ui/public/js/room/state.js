@@ -49,6 +49,7 @@ export const $ = {
   endCallButton: document.getElementById("endCallButton"),
   recordButton: document.getElementById("recordButton"),
   stopRecordButton: document.getElementById("stopRecordButton"),
+  callControls: document.getElementById("callControls"),
   videoContainer: document.getElementById("videoContainer"),
   localVideo: document.getElementById("localVideo"),
   remoteVideosDiv: document.getElementById("remoteVideos"),

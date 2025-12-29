@@ -34,6 +34,7 @@ export async function startCall() {
     $.screenBtn.style.display = "inline-block";
     $.recordButton.style.display = "inline-block";
     $.endCallButton.style.display = "inline-block";
+    $.callControls.classList.add("call-active");
 
     // Add tracks to all existing peer connections
     // The onnegotiationneeded handler will trigger renegotiation automatically
@@ -176,6 +177,7 @@ export async function endCall(isRemote = false) {
   $.recordButton.style.display = "none";
   $.stopRecordButton.style.display = "none";
   $.endCallButton.style.display = "none";
+  $.callControls.classList.remove("call-active");
 
   for (const [peerId, pc] of peerConnections.entries()) {
     pc.getSenders().forEach((sender) => {
