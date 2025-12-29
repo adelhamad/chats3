@@ -48,7 +48,7 @@ export async function buildApp(opts = {}) {
   });
 
   await app.register(fastifyRateLimit, {
-    max: 100,
+    max: 300,
     timeWindow: "1 minute",
   });
 

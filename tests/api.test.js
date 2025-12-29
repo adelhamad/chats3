@@ -195,9 +195,9 @@ describe("API Integration Tests", () => {
 
   describe("Rate Limiting", () => {
     test("should apply rate limiting", async () => {
-      // Make many requests
+      // Make many requests (more than 300 limit)
       const requests = [];
-      for (let i = 0; i < 150; i++) {
+      for (let i = 0; i < 350; i++) {
         requests.push(
           app.inject({
             method: "GET",

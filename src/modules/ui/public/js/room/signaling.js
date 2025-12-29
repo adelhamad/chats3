@@ -10,7 +10,6 @@ import {
 } from "./messages.js";
 import {
   $,
-  sessionId,
   sessionInfo,
   peerConnections,
   dataChannels,
@@ -489,14 +488,15 @@ async function handleSignalingEvent(event) {
 
 // Setup SSE with reconnection
 let sseReconnectAttempts = 0;
-const SSE_MAX_RECONNECT_DELAY = 30000; // 30 seconds max
+const SSE_MAX_RECONNECT_ATTEMPTS = 5;
+const SSE_INITIAL_DELAY = 2000; // 2 seconds
 
 export function setupSignalingSSE() {
   console.log("Setting up SSE connection...");
-  const url = sessionId
-    ? `/api/v1/signaling?sessionId=${sessionId}`
-    : "/api/v1/signaling";
-  const eventSource = new EventSource(url);
+  // Use EventSource with credentials for cookie-based session
+  const eventSource = new EventSource("/api/v1/signaling", {
+    withCredentials: true,
+  });
 
   eventSource.onopen = () => {
     console.log("SSE connection opened");
@@ -528,14 +528,17 @@ export function setupSignalingSSE() {
     window.signalingEventSource = null;
     updateConnectionStatus();
 
+    // Limit reconnection attempts
+    if (sseReconnectAttempts >= SSE_MAX_RECONNECT_ATTEMPTS) {
+      console.error("SSE max reconnection attempts reached. Please refresh.");
+      return;
+    }
+
     // Reconnect with exponential backoff
     sseReconnectAttempts++;
-    const delay = Math.min(
-      1000 * Math.pow(2, sseReconnectAttempts - 1),
-      SSE_MAX_RECONNECT_DELAY,
-    );
+    const delay = SSE_INITIAL_DELAY * Math.pow(2, sseReconnectAttempts - 1);
     console.log(
-      `SSE reconnecting in ${delay}ms (attempt ${sseReconnectAttempts})`,
+      `SSE reconnecting in ${delay}ms (attempt ${sseReconnectAttempts}/${SSE_MAX_RECONNECT_ATTEMPTS})`,
     );
     setTimeout(setupSignalingSSE, delay);
   };
