@@ -14,7 +14,6 @@ import { startRecording, stopRecording } from "./recording.js";
 import { initSearch } from "./search.js";
 import {
   setupSignalingSSE,
-  sendSignalingEvent,
   broadcastViaDataChannel,
   broadcastTyping,
 } from "./signaling.js";
@@ -63,11 +62,6 @@ async function init() {
     await loadMessageHistory();
     scrollToBottom();
     setupSignalingSSE();
-
-    await sendSignalingEvent("peer-join", undefined, {
-      userId: sessionInfo.userId,
-      displayName: sessionInfo.displayName,
-    });
 
     // Event listeners
     $.sendButton.addEventListener("click", sendMessage);

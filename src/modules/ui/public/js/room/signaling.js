@@ -494,7 +494,10 @@ async function handleSignalingEvent(event) {
   }
 }
 
-// Setup SSE
+// Setup SSE with reconnection
+let sseReconnectAttempts = 0;
+const SSE_MAX_RECONNECT_DELAY = 30000; // 30 seconds max
+
 export function setupSignalingSSE() {
   console.log("Setting up SSE connection...");
   const url = sessionId
@@ -504,7 +507,16 @@ export function setupSignalingSSE() {
 
   eventSource.onopen = () => {
     console.log("SSE connection opened");
+    sseReconnectAttempts = 0; // Reset on successful connection
     updateConnectionStatus();
+    // Re-announce presence after reconnection
+    sendSignalingEvent("peer-join", undefined, {
+      userId: sessionInfo.userId,
+      displayName: sessionInfo.displayName,
+    });
+    // Update our own avatars for old messages with same displayName
+    registerUserDisplayName(sessionInfo.displayName, sessionInfo.userId);
+    updateAvatarsByDisplayName(sessionInfo.displayName, true);
   };
 
   eventSource.onmessage = async (event) => {
@@ -522,9 +534,20 @@ export function setupSignalingSSE() {
 
   eventSource.onerror = (error) => {
     console.error("SSE error:", error);
-    if (eventSource.readyState === EventSource.CLOSED) {
-      updateConnectionStatus();
-    }
+    eventSource.close();
+    window.signalingEventSource = null;
+    updateConnectionStatus();
+
+    // Reconnect with exponential backoff
+    sseReconnectAttempts++;
+    const delay = Math.min(
+      1000 * Math.pow(2, sseReconnectAttempts - 1),
+      SSE_MAX_RECONNECT_DELAY,
+    );
+    console.log(
+      `SSE reconnecting in ${delay}ms (attempt ${sseReconnectAttempts})`,
+    );
+    setTimeout(setupSignalingSSE, delay);
   };
 
   window.signalingEventSource = eventSource;
