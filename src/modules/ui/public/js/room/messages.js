@@ -10,8 +10,6 @@ import {
   messageReactions,
   REACTIONS,
   scrollToBottom,
-  displayNameToUserIds,
-  registerUserDisplayName,
 } from "./state.js";
 
 export function updateLastSeen(userId, timestamp) {
@@ -47,20 +45,6 @@ export function updateAllUserStatuses() {
   });
 }
 
-// Check if any userId with same displayName is online
-function isDisplayNameOnline(displayName) {
-  const userIds = displayNameToUserIds.get(displayName);
-  if (!userIds) {
-    return false;
-  }
-  for (const uid of userIds) {
-    if (peerConnections.has(uid)) {
-      return true;
-    }
-  }
-  return false;
-}
-
 export function updateAvatarStatus(userId, isOnline, lastSeenTime) {
   const avatars = document.querySelectorAll(`.user-avatar-${userId}`);
   avatars.forEach((el) => {
@@ -68,21 +52,6 @@ export function updateAvatarStatus(userId, isOnline, lastSeenTime) {
     el.classList.add(isOnline ? "online" : "offline");
     el.title = isOnline ? "Online" : formatLastSeen(lastSeenTime);
   });
-}
-
-// Update all avatars for a displayName (when same person rejoins with new userId)
-export function updateAvatarsByDisplayName(
-  displayName,
-  isOnline,
-  lastSeenTime,
-) {
-  const userIds = displayNameToUserIds.get(displayName);
-  if (!userIds) {
-    return;
-  }
-  for (const userId of userIds) {
-    updateAvatarStatus(userId, isOnline, lastSeenTime);
-  }
 }
 
 function getAvatar(name, userId, avatarUrl) {
@@ -98,12 +67,9 @@ function getAvatar(name, userId, avatarUrl) {
   const div = document.createElement("div");
   div.className = "message-avatar";
 
-  // Check if this displayName has any online userId
-  const anyOnline = isDisplayNameOnline(name);
-
   if (userId) {
     div.classList.add(`user-avatar-${userId}`);
-    if (anyOnline || peerConnections.has(userId)) {
+    if (peerConnections.has(userId)) {
       div.classList.add("online");
       div.title = "Online";
     } else {
@@ -253,11 +219,6 @@ function getMessageRowClass(isSystem, isOwn) {
 }
 
 export function displayMessage(message) {
-  // Register displayName -> userId mapping for online status tracking
-  if (message.senderDisplayName && message.senderUserId) {
-    registerUserDisplayName(message.senderDisplayName, message.senderUserId);
-  }
-
   // Update last seen for other users
   const isOtherUser =
     message.senderUserId && message.senderUserId !== sessionInfo.userId;

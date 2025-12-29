@@ -7,7 +7,6 @@ import {
   updateLastSeen,
   updateAvatarStatus,
   updateReactionDisplay,
-  updateAvatarsByDisplayName,
 } from "./messages.js";
 import {
   $,
@@ -18,10 +17,9 @@ import {
   localStream,
   messageReactions,
   apiFetch,
-  registerUserDisplayName,
 } from "./state.js";
 
-// Track peer displayNames for online status across sessions
+// Track peer displayNames for video labels
 const peerDisplayNames = new Map(); // peerId -> displayName
 
 // Send signaling event
@@ -44,13 +42,9 @@ export function updateConnectionStatus() {
   const onlineCount = peerConnections.size + 1;
   const peersText = onlineCount > 1 ? `${onlineCount} in room` : "";
 
-  // Update avatar status for connected peers (by userId AND displayName)
+  // Update avatar status for connected peers
   peerConnections.forEach((pc, userId) => {
     updateAvatarStatus(userId, true);
-    const displayName = peerDisplayNames.get(userId);
-    if (displayName) {
-      updateAvatarsByDisplayName(displayName, true);
-    }
   });
 
   if (hasConnectedPeers) {
@@ -335,7 +329,9 @@ export async function createPeerConnection(peerId, initiator) {
         "width:200px;height:150px;background:#000;border-radius:8px;object-fit:cover";
 
       const label = document.createElement("span");
-      label.textContent = `User ${peerId.substr(0, 4)}`;
+      label.id = `remote-label-${peerId}`;
+      const displayName = peerDisplayNames.get(peerId) || "User";
+      label.textContent = displayName;
       label.style.cssText =
         "position:absolute;bottom:5px;left:5px;color:white;font-size:12px;background:rgba(0,0,0,0.5);padding:2px 5px;border-radius:4px";
 
@@ -407,15 +403,15 @@ export function closePeerConnection(peerId) {
   updateLastSeen(peerId, now);
   updateAvatarStatus(peerId, false, now);
 
-  // Update all avatars with this peer's displayName to offline
-  const displayName = peerDisplayNames.get(peerId);
-  if (displayName) {
-    updateAvatarsByDisplayName(displayName, false, now);
-    peerDisplayNames.delete(peerId);
-  }
+  peerDisplayNames.delete(peerId);
 
   const videoEl = document.getElementById(`remote-video-${peerId}`);
   if (videoEl) {
+    // Stop any tracks on the video element
+    if (videoEl.srcObject) {
+      videoEl.srcObject.getTracks().forEach((track) => track.stop());
+      videoEl.srcObject = null;
+    }
     videoEl.parentElement.remove();
   }
 
@@ -451,12 +447,9 @@ async function handleSignalingEvent(event) {
     case "peer-join":
       if (fromUserId !== sessionInfo.userId) {
         console.log(`Peer joined: ${fromUserId}. Initiating connection...`);
-        // Store peer's displayName for online status tracking
+        // Store peer's displayName for video labels
         if (data?.displayName) {
           peerDisplayNames.set(fromUserId, data.displayName);
-          registerUserDisplayName(data.displayName, fromUserId);
-          // Update all avatars with this displayName to online
-          updateAvatarsByDisplayName(data.displayName, true);
         }
         await createPeerConnection(fromUserId, true);
       }
@@ -514,9 +507,6 @@ export function setupSignalingSSE() {
       userId: sessionInfo.userId,
       displayName: sessionInfo.displayName,
     });
-    // Update our own avatars for old messages with same displayName
-    registerUserDisplayName(sessionInfo.displayName, sessionInfo.userId);
-    updateAvatarsByDisplayName(sessionInfo.displayName, true);
   };
 
   eventSource.onmessage = async (event) => {

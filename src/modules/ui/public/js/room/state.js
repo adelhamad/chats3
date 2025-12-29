@@ -18,18 +18,6 @@ export let screenStream = null;
 export let isScreenSharing = false;
 export let selectedFile = null;
 export const lastSeenMap = new Map(); // userId -> timestamp
-export const displayNameToUserIds = new Map(); // displayName -> Set<userId>
-
-// Register userId with displayName (for tracking same person across sessions)
-export function registerUserDisplayName(displayName, userId) {
-  if (!displayName || !userId) {
-    return;
-  }
-  if (!displayNameToUserIds.has(displayName)) {
-    displayNameToUserIds.set(displayName, new Set());
-  }
-  displayNameToUserIds.get(displayName).add(userId);
-}
 
 // Setters for mutable state
 export function setSessionInfo(info) {
