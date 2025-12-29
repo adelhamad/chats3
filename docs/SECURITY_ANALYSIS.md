@@ -229,7 +229,7 @@ app.addHook("onSend", async (request, reply) => {
 
 **Dynamic frame-ancestors:**
 ```javascript
-const integrators = parseIntegrators(app.config.INTEGRATORS_JSON);
+const integrators = getIntegratorsMap(); // From src/modules/auth
 const allowedOrigins = Array.from(integrators.values())
   .flatMap((i) => i.allowedOrigins)
   .join(" ");

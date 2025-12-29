@@ -1,5 +1,5 @@
 // View routes for serving pages
-import { validateTicket, parseIntegrators } from "../auth/index.js";
+import { validateTicket, getIntegratorsMap } from "../auth/index.js";
 import { createSession } from "../session/index.js";
 
 const getCookieOpts = (isProd) => ({
@@ -11,7 +11,7 @@ const getCookieOpts = (isProd) => ({
 });
 
 export default async function viewRoutes(fastify) {
-  const integrators = parseIntegrators(fastify.config.INTEGRATORS_JSON);
+  const integrators = getIntegratorsMap();
   const isProd = fastify.config.NODE_ENV === "production";
 
   // Embed handshake (GET)

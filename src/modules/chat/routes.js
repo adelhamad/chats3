@@ -3,10 +3,11 @@ import crypto from "crypto";
 
 import { z } from "zod";
 
+import { MAX_PARTICIPANTS } from "../../constants/index.js";
 import { success, fail } from "../../constants/response.js";
 import { requireSession } from "../../middleware/index.js";
 import { uploadAttachment, getAttachment } from "../attachment/index.js";
-import { parseIntegrators, validateTicket } from "../auth/index.js";
+import { getIntegratorsMap, validateTicket } from "../auth/index.js";
 import { getConversation, validateJoinCode } from "../conversation/index.js";
 import {
   saveMessage,
@@ -23,12 +24,19 @@ import {
   pollSignalingEvents,
   signalingEmitter,
 } from "../signaling/index.js";
+import { putReactions, getReactions } from "../storage/index.js";
 
 const joinSchema = z.object({
-  conversationId: z.string(),
-  joinCode: z.string(),
-  displayName: z.string().min(1).max(100),
-  avatarUrl: z.string().url().optional(),
+  conversationId: z
+    .string()
+    .max(100)
+    .regex(/^[a-zA-Z0-9-_]+$/),
+  joinCode: z
+    .string()
+    .length(6)
+    .regex(/^[A-Z0-9]+$/),
+  displayName: z.string().min(1).max(50).trim(),
+  avatarUrl: z.string().url().max(500).optional(),
 });
 
 const embedSchema = z.object({
@@ -39,13 +47,13 @@ const embedSchema = z.object({
 const messageSchema = z.object({
   messageId: z.string().uuid().optional(),
   type: z.enum(["text", "system", "file"]).default("text"),
-  body: z.string(),
+  body: z.string().max(10000),
   clientTimestamp: z.string().datetime(),
   // Allow extra fields for file attachments
-  attachmentId: z.string().optional(),
-  filename: z.string().optional(),
-  mimetype: z.string().optional(),
-  url: z.string().optional(),
+  attachmentId: z.string().max(100).optional(),
+  filename: z.string().max(255).optional(),
+  mimetype: z.string().max(100).optional(),
+  url: z.string().url().max(2048).optional(),
 });
 
 const signalingSchema = z.object({
@@ -62,6 +70,54 @@ const signalingSchema = z.object({
   data: z.any(),
 });
 
+const reactionSchema = z.object({
+  messageId: z.string().uuid(),
+  emoji: z.string().max(10),
+  added: z.boolean(),
+});
+
+// Remove a user from all emojis on a message
+function removeUserFromAllEmojis(messageReactions, userId) {
+  for (const e of Object.keys(messageReactions)) {
+    const idx = messageReactions[e].indexOf(userId);
+    if (idx !== -1) {
+      messageReactions[e].splice(idx, 1);
+      if (messageReactions[e].length === 0) {
+        delete messageReactions[e];
+      }
+    }
+  }
+}
+
+// Helper to update reaction data (mutates reactions object)
+function updateReactionData(reactions, messageId, emoji, userId, added) {
+  if (!reactions[messageId]) {
+    reactions[messageId] = {};
+  }
+
+  if (added) {
+    removeUserFromAllEmojis(reactions[messageId], userId);
+    if (!reactions[messageId][emoji]) {
+      reactions[messageId][emoji] = [];
+    }
+    if (!reactions[messageId][emoji].includes(userId)) {
+      reactions[messageId][emoji].push(userId);
+    }
+  } else if (reactions[messageId][emoji]) {
+    const idx = reactions[messageId][emoji].indexOf(userId);
+    if (idx !== -1) {
+      reactions[messageId][emoji].splice(idx, 1);
+      if (reactions[messageId][emoji].length === 0) {
+        delete reactions[messageId][emoji];
+      }
+    }
+  }
+
+  if (Object.keys(reactions[messageId]).length === 0) {
+    delete reactions[messageId];
+  }
+}
+
 // Cookie options helper
 const getCookieOpts = (isProd) => ({
   httpOnly: true,
@@ -72,7 +128,7 @@ const getCookieOpts = (isProd) => ({
 });
 
 export default async function chatRoutes(fastify) {
-  const integrators = parseIntegrators(fastify.config.INTEGRATORS_JSON);
+  const integrators = getIntegratorsMap();
   const isProd = fastify.config.NODE_ENV === "production";
 
   // Manual join
@@ -87,6 +143,16 @@ export default async function chatRoutes(fastify) {
     }
 
     const existingSessions = getSessionsByConversation(conversationId);
+
+    // Check participant limit
+    if (existingSessions.length >= MAX_PARTICIPANTS) {
+      reply.status(403);
+      return fail.parse({
+        message: "Conversation is full",
+        details: { maxParticipants: MAX_PARTICIPANTS },
+      });
+    }
+
     if (
       existingSessions.some(
         (s) => s.displayName.toLowerCase() === displayName.toLowerCase(),
@@ -227,6 +293,31 @@ export default async function chatRoutes(fastify) {
     );
     return success.parse({ message: "Messages retrieved", details: messages });
   });
+
+  // Get reactions
+  fastify.get("/reactions", { preHandler: requireSession }, async (request) => {
+    const reactions = await getReactions(request.session.conversationId);
+    return success.parse({
+      message: "Reactions retrieved",
+      details: reactions,
+    });
+  });
+
+  // Save reaction
+  fastify.post(
+    "/reactions",
+    { preHandler: requireSession },
+    async (request) => {
+      const { messageId, emoji, added } = reactionSchema.parse(request.body);
+      const { conversationId, userId } = request.session;
+
+      const reactions = await getReactions(conversationId);
+      updateReactionData(reactions, messageId, emoji, userId, added);
+      await putReactions(conversationId, reactions);
+
+      return success.parse({ message: "Reaction saved" });
+    },
+  );
 
   // Signaling - send event
   fastify.post(

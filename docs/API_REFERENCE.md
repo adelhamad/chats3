@@ -273,43 +273,6 @@ Send a message to the conversation.
 
 ---
 
-#### `POST /api/v1/messages/batch`
-
-Save multiple messages at once (for offline sync/flush).
-
-**Authentication:** Session required
-
-**Request Body:**
-```json
-{
-  "messages": [
-    {
-      "type": "text",
-      "body": "Message 1",
-      "clientTimestamp": "2025-12-28T10:00:00.000Z"
-    },
-    {
-      "type": "text",
-      "body": "Message 2",
-      "clientTimestamp": "2025-12-28T10:00:01.000Z"
-    }
-  ]
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Messages saved",
-  "details": {
-    "count": 2
-  }
-}
-```
-
----
-
 #### `GET /api/v1/messages`
 
 Get message history for the conversation.
@@ -640,16 +603,16 @@ const signature = crypto
 
 ### Integrator Configuration
 
-Add to `INTEGRATORS_JSON` environment variable:
+Edit `src/constants/index.js`:
 
-```json
-[
+```javascript
+export const INTEGRATORS = [
   {
-    "id": "acme-corp",
-    "secret": "256-bit-secret-key-here",
-    "allowedOrigins": ["https://acme.com", "https://app.acme.com"]
-  }
-]
+    id: "acme-corp",
+    secret: "256-bit-secret-key-here",
+    allowedOrigins: ["https://acme.com", "https://app.acme.com"],
+  },
+];
 ```
 
 ---

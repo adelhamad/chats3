@@ -45,6 +45,21 @@ export function getBucketName() {
   return bucketName;
 }
 
+// Retry wrapper for transient S3 failures
+async function withRetry(fn, maxRetries = 3) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt === maxRetries) {
+        throw error;
+      }
+      const delay = Math.min(100 * Math.pow(2, attempt), 2000);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+}
+
 // Store conversation metadata
 export async function putConversationMeta(conversationId, metadata) {
   const key = `conversations/${conversationId}/meta.json`;
@@ -54,7 +69,7 @@ export async function putConversationMeta(conversationId, metadata) {
     Body: JSON.stringify(metadata, null, 2),
     ContentType: "application/json",
   });
-  await s3Client.send(command);
+  await withRetry(() => s3Client.send(command));
 }
 
 // Get conversation metadata
@@ -93,7 +108,7 @@ export async function appendMessages(conversationId, messages) {
     Body: content,
     ContentType: "application/x-ndjson",
   });
-  await s3Client.send(putCommand);
+  await withRetry(() => s3Client.send(putCommand));
 }
 
 // Get messages for a conversation
@@ -235,6 +250,38 @@ export async function attachmentExists(conversationId, attachmentId) {
   } catch (error) {
     if (error.name === "NotFound" || error.name === "NoSuchKey") {
       return false;
+    }
+    throw error;
+  }
+}
+
+// Store reactions for a conversation
+// reactions is an object: { messageId: { emoji: [userId1, userId2], ... }, ... }
+export async function putReactions(conversationId, reactions) {
+  const key = `conversations/${conversationId}/reactions.json`;
+  const command = new PutObjectCommand({
+    Bucket: bucketName,
+    Key: key,
+    Body: JSON.stringify(reactions),
+    ContentType: "application/json",
+  });
+  await withRetry(() => s3Client.send(command));
+}
+
+// Get reactions for a conversation
+export async function getReactions(conversationId) {
+  const key = `conversations/${conversationId}/reactions.json`;
+  try {
+    const command = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: key,
+    });
+    const response = await s3Client.send(command);
+    const body = await response.Body.transformToString();
+    return JSON.parse(body);
+  } catch (error) {
+    if (error.name === "NoSuchKey") {
+      return {};
     }
     throw error;
   }

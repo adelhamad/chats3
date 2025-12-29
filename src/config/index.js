@@ -1,7 +1,7 @@
 // Environment schema for @fastify/env
 export const envSchema = {
   type: "object",
-  required: ["PORT", "HOST", "ADMIN_PASSWORD", "S3_BUCKET"],
+  required: ["PORT", "S3_BUCKET"],
   properties: {
     PORT: {
       type: "number",
@@ -14,13 +14,6 @@ export const envSchema = {
     NODE_ENV: {
       type: "string",
       default: "development",
-    },
-    BASE_URL: {
-      type: "string",
-      default: "http://localhost:3000",
-    },
-    ADMIN_PASSWORD: {
-      type: "string",
     },
     S3_ENDPOINT: {
       type: "string",
@@ -40,10 +33,6 @@ export const envSchema = {
     S3_SECRET_KEY: {
       type: "string",
       default: "",
-    },
-    INTEGRATORS_JSON: {
-      type: "string",
-      default: "[]",
     },
   },
 };

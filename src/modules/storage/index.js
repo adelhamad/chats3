@@ -11,4 +11,6 @@ export {
   getAttachmentMeta,
   getAttachmentSignedUrl,
   attachmentExists,
+  putReactions,
+  getReactions,
 } from "./s3-service.js";

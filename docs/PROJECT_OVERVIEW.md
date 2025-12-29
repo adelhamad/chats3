@@ -70,8 +70,7 @@ Peer-to-peer WebRTC video and audio calls with screen sharing support.
 │  In-Memory (volatile)              │  S3 (persistent)           │
 │  ├── Sessions                      │  ├── Conversation metadata │
 │  ├── Signaling events              │  ├── Messages (NDJSON)     │
-│  ├── Nonces (replay protection)    │  └── Attachments           │
-│  └── Message cache (idempotency)   │                            │
+│  └── Nonces (replay protection)    │  └── Attachments           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -284,24 +283,32 @@ src/
 |----------|-------------|
 | `PORT` | Server port (default: 3000) |
 | `HOST` | Server host (default: 0.0.0.0) |
-| `ADMIN_PASSWORD` | Password for admin operations |
+| `COOKIE_SECRET` | Secret for session cookies (min 32 chars) |
 | `S3_BUCKET` | S3 bucket name |
 | `S3_REGION` | S3 region (default: us-east-1) |
 | `S3_ENDPOINT` | S3 endpoint URL |
 | `S3_ACCESS_KEY` | S3 access key (optional for IAM roles) |
 | `S3_SECRET_KEY` | S3 secret key (optional for IAM roles) |
-| `INTEGRATORS_JSON` | JSON array of integrator configurations |
+
+### Hardcoded Configuration (src/constants/index.js)
+
+| Constant | Description |
+|----------|-------------|
+| `ADMIN_PASSWORD` | Password for admin operations |
+| `INTEGRATORS` | Array of integrator configurations |
 
 ### Integrator Configuration Example
 
-```json
-[
+Edit `src/constants/index.js`:
+
+```javascript
+export const INTEGRATORS = [
   {
-    "id": "acme-corp",
-    "secret": "super-secret-key-256-bits",
-    "allowedOrigins": ["https://acme.com", "https://app.acme.com"]
-  }
-]
+    id: "acme-corp",
+    secret: "super-secret-key-256-bits",
+    allowedOrigins: ["https://acme.com", "https://app.acme.com"],
+  },
+];
 ```
 
 ---
@@ -322,7 +329,6 @@ src/
 | GET | `/api/v1/conversation` | Session | Get conversation info |
 | GET | `/api/v1/messages` | Session | Get message history |
 | POST | `/api/v1/messages` | Session | Send message |
-| POST | `/api/v1/messages/batch` | Session | Batch save messages |
 | GET | `/api/v1/signaling` | Session | SSE stream |
 | POST | `/api/v1/signaling` | Session | Send signaling event |
 | POST | `/api/v1/attachments` | Session | Upload file |

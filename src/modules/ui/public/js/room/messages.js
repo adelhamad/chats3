@@ -7,7 +7,11 @@ import {
   sessionInfo,
   peerConnections,
   lastSeenMap,
+  messageReactions,
+  REACTIONS,
   scrollToBottom,
+  displayNameToUserIds,
+  registerUserDisplayName,
 } from "./state.js";
 
 export function updateLastSeen(userId, timestamp) {
@@ -43,6 +47,20 @@ export function updateAllUserStatuses() {
   });
 }
 
+// Check if any userId with same displayName is online
+function isDisplayNameOnline(displayName) {
+  const userIds = displayNameToUserIds.get(displayName);
+  if (!userIds) {
+    return false;
+  }
+  for (const uid of userIds) {
+    if (peerConnections.has(uid)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function updateAvatarStatus(userId, isOnline, lastSeenTime) {
   const avatars = document.querySelectorAll(`.user-avatar-${userId}`);
   avatars.forEach((el) => {
@@ -50,6 +68,21 @@ export function updateAvatarStatus(userId, isOnline, lastSeenTime) {
     el.classList.add(isOnline ? "online" : "offline");
     el.title = isOnline ? "Online" : formatLastSeen(lastSeenTime);
   });
+}
+
+// Update all avatars for a displayName (when same person rejoins with new userId)
+export function updateAvatarsByDisplayName(
+  displayName,
+  isOnline,
+  lastSeenTime,
+) {
+  const userIds = displayNameToUserIds.get(displayName);
+  if (!userIds) {
+    return;
+  }
+  for (const userId of userIds) {
+    updateAvatarStatus(userId, isOnline, lastSeenTime);
+  }
 }
 
 function getAvatar(name, userId, avatarUrl) {
@@ -65,9 +98,12 @@ function getAvatar(name, userId, avatarUrl) {
   const div = document.createElement("div");
   div.className = "message-avatar";
 
+  // Check if this displayName has any online userId
+  const anyOnline = isDisplayNameOnline(name);
+
   if (userId) {
     div.classList.add(`user-avatar-${userId}`);
-    if (peerConnections.has(userId)) {
+    if (anyOnline || peerConnections.has(userId)) {
       div.classList.add("online");
       div.title = "Online";
     } else {
@@ -152,54 +188,8 @@ function renderFileAttachment(message, container) {
   container.appendChild(link);
 }
 
-export function displayMessage(message) {
-  if (message.senderUserId && message.senderUserId !== sessionInfo.userId) {
-    const ts = message.serverReceivedAt || message.clientTimestamp;
-    updateLastSeen(message.senderUserId, ts);
-    if (!peerConnections.has(message.senderUserId)) {
-      updateAvatarStatus(message.senderUserId, false, ts);
-    }
-  }
-
-  if (
-    message.messageId &&
-    document.querySelector(`[data-message-id="${message.messageId}"]`)
-  ) {
-    return;
-  }
-
-  const isOwn =
-    message.senderUserId === sessionInfo.userId ||
-    (message.senderDisplayName &&
-      message.senderDisplayName === sessionInfo.displayName);
-  const isSystem = message.type === "system";
-
-  function getRowClass() {
-    if (isSystem) {
-      return "system";
-    }
-    return isOwn ? "own" : "other";
-  }
-
-  const rowDiv = document.createElement("div");
-  rowDiv.className = `message-row ${getRowClass()}`;
-
-  if (!isOwn && !isSystem) {
-    rowDiv.appendChild(
-      getAvatar(
-        message.senderDisplayName || "User",
-        message.senderUserId,
-        message.senderAvatarUrl,
-      ),
-    );
-  }
-
-  const messageDiv = document.createElement("div");
-  messageDiv.className = `message ${getRowClass()}`;
-  if (message.messageId) {
-    messageDiv.setAttribute("data-message-id", message.messageId);
-  }
-
+// Create message header with sender, time, and status
+function createMessageHeader(message, isOwn) {
   const headerDiv = document.createElement("div");
   headerDiv.className = "message-header";
 
@@ -230,12 +220,101 @@ export function displayMessage(message) {
     headerDiv.appendChild(statusSpan);
   }
 
+  return headerDiv;
+}
+
+// Add reactions container and button to message
+function addReactionsToMessage(messageDiv, messageId, isOwn) {
+  const reactionsDiv = document.createElement("div");
+  reactionsDiv.className = "message-reactions";
+  reactionsDiv.id = `reactions-${messageId}`;
+  messageDiv.appendChild(reactionsDiv);
+
+  // Reaction picker button (only for OTHER users' messages)
+  if (!isOwn) {
+    const addReactionBtn = document.createElement("button");
+    addReactionBtn.className = "add-reaction-btn";
+    addReactionBtn.textContent = "😊";
+    addReactionBtn.title = "Add reaction";
+    addReactionBtn.onclick = (e) => {
+      e.stopPropagation();
+      showReactionPicker(messageId, addReactionBtn);
+    };
+    messageDiv.appendChild(addReactionBtn);
+  }
+}
+
+// Get CSS class for message row
+function getMessageRowClass(isSystem, isOwn) {
+  if (isSystem) {
+    return "system";
+  }
+  return isOwn ? "own" : "other";
+}
+
+export function displayMessage(message) {
+  // Register displayName -> userId mapping for online status tracking
+  if (message.senderDisplayName && message.senderUserId) {
+    registerUserDisplayName(message.senderDisplayName, message.senderUserId);
+  }
+
+  // Update last seen for other users
+  const isOtherUser =
+    message.senderUserId && message.senderUserId !== sessionInfo.userId;
+  if (isOtherUser) {
+    const ts = message.serverReceivedAt || message.clientTimestamp;
+    updateLastSeen(message.senderUserId, ts);
+    if (!peerConnections.has(message.senderUserId)) {
+      updateAvatarStatus(message.senderUserId, false, ts);
+    }
+  }
+
+  // Skip duplicate messages
+  const isDuplicate =
+    message.messageId &&
+    document.querySelector(`[data-message-id="${message.messageId}"]`);
+  if (isDuplicate) {
+    return;
+  }
+
+  const isOwn =
+    message.senderUserId === sessionInfo.userId ||
+    (message.senderDisplayName &&
+      message.senderDisplayName === sessionInfo.displayName);
+  const isSystem = message.type === "system";
+  const rowClass = getMessageRowClass(isSystem, isOwn);
+
+  const rowDiv = document.createElement("div");
+  rowDiv.className = `message-row ${rowClass}`;
+
+  if (!isOwn && !isSystem) {
+    rowDiv.appendChild(
+      getAvatar(
+        message.senderDisplayName || "User",
+        message.senderUserId,
+        message.senderAvatarUrl,
+      ),
+    );
+  }
+
+  const messageDiv = document.createElement("div");
+  messageDiv.className = `message ${rowClass}`;
+  if (message.messageId) {
+    messageDiv.setAttribute("data-message-id", message.messageId);
+  }
+
+  messageDiv.appendChild(createMessageHeader(message, isOwn));
+
   const bodyDiv = document.createElement("div");
   bodyDiv.className = "message-body";
   renderMessageBody(message, bodyDiv);
-
-  messageDiv.appendChild(headerDiv);
   messageDiv.appendChild(bodyDiv);
+
+  // Add reactions (for all non-system messages)
+  if (!isSystem && message.messageId) {
+    addReactionsToMessage(messageDiv, message.messageId, isOwn);
+  }
+
   rowDiv.appendChild(messageDiv);
   $.messagesDiv.appendChild(rowDiv);
   scrollToBottom();
@@ -244,16 +323,36 @@ export function displayMessage(message) {
 export async function loadMessageHistory() {
   const loader = document.getElementById("messagesLoader");
   try {
-    const response = await apiFetch("/api/v1/messages");
-    const data = await response.json();
+    // Load messages and reactions in parallel
+    const [messagesRes, reactionsRes] = await Promise.all([
+      apiFetch("/api/v1/messages"),
+      apiFetch("/api/v1/reactions"),
+    ]);
+    const messagesData = await messagesRes.json();
+    const reactionsData = await reactionsRes.json();
 
     if (loader) {
       loader.remove();
     }
 
-    if (data.success && data.details) {
-      data.details.forEach(displayMessage);
+    // Load reactions into state
+    if (reactionsData.success && reactionsData.details) {
+      for (const [messageId, emojis] of Object.entries(reactionsData.details)) {
+        const msgReactions = new Map();
+        for (const [emoji, users] of Object.entries(emojis)) {
+          msgReactions.set(emoji, new Set(users));
+        }
+        messageReactions.set(messageId, msgReactions);
+      }
+    }
+
+    if (messagesData.success && messagesData.details) {
+      messagesData.details.forEach(displayMessage);
       updateAllUserStatuses();
+      // Update reaction displays after messages are rendered
+      for (const messageId of messageReactions.keys()) {
+        updateReactionDisplay(messageId);
+      }
     }
   } catch (error) {
     console.error("Failed to load history:", error);
@@ -261,4 +360,84 @@ export async function loadMessageHistory() {
       loader.innerHTML = "<span>Failed to load messages.</span>";
     }
   }
+}
+
+// Reaction picker
+let currentPicker = null;
+
+function showReactionPicker(messageId, button) {
+  // Close any existing picker
+  if (currentPicker) {
+    currentPicker.remove();
+    currentPicker = null;
+  }
+
+  const picker = document.createElement("div");
+  picker.className = "reaction-picker";
+  REACTIONS.forEach((emoji) => {
+    const btn = document.createElement("button");
+    btn.textContent = emoji;
+    btn.onclick = () => {
+      // Import sendReaction dynamically to avoid circular dependency
+      import("./signaling.js").then((mod) =>
+        mod.sendReaction(messageId, emoji),
+      );
+      picker.remove();
+      currentPicker = null;
+    };
+    picker.appendChild(btn);
+  });
+
+  button.parentElement.appendChild(picker);
+  currentPicker = picker;
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener("click", function closeHandler() {
+      if (currentPicker) {
+        currentPicker.remove();
+        currentPicker = null;
+      }
+      document.removeEventListener("click", closeHandler);
+    });
+  }, 0);
+}
+
+export function updateReactionDisplay(messageId) {
+  const container = document.getElementById(`reactions-${messageId}`);
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = "";
+  const reactions = messageReactions.get(messageId);
+  if (!reactions || reactions.size === 0) {
+    return;
+  }
+
+  // Check if this is the user's own message (reactions should be view-only)
+  const messageEl = container.closest(".message");
+  const isOwnMessage = messageEl?.classList.contains("own");
+
+  reactions.forEach((users, emoji) => {
+    if (users.size === 0) {
+      return;
+    }
+    const badge = document.createElement("span");
+    badge.className = "reaction-badge";
+    badge.textContent = `${emoji} ${users.size}`;
+    badge.title = `${users.size} reaction${users.size > 1 ? "s" : ""}`;
+    // Only allow clicking to add reaction on OTHER users' messages
+    if (!isOwnMessage) {
+      badge.onclick = () => {
+        import("./signaling.js").then((mod) =>
+          mod.sendReaction(messageId, emoji),
+        );
+      };
+    }
+    if (users.has(sessionInfo.userId)) {
+      badge.classList.add("own-reaction");
+    }
+    container.appendChild(badge);
+  });
 }

@@ -6,6 +6,8 @@ import {
   displayMessage,
   updateLastSeen,
   updateAvatarStatus,
+  updateReactionDisplay,
+  updateAvatarsByDisplayName,
 } from "./messages.js";
 import {
   $,
@@ -14,8 +16,13 @@ import {
   peerConnections,
   dataChannels,
   localStream,
+  messageReactions,
   apiFetch,
+  registerUserDisplayName,
 } from "./state.js";
+
+// Track peer displayNames for online status across sessions
+const peerDisplayNames = new Map(); // peerId -> displayName
 
 // Send signaling event
 export async function sendSignalingEvent(type, toUserId, data) {
@@ -37,7 +44,14 @@ export function updateConnectionStatus() {
   const onlineCount = peerConnections.size + 1;
   const peersText = onlineCount > 1 ? `${onlineCount} in room` : "";
 
-  peerConnections.forEach((pc, userId) => updateAvatarStatus(userId, true));
+  // Update avatar status for connected peers (by userId AND displayName)
+  peerConnections.forEach((pc, userId) => {
+    updateAvatarStatus(userId, true);
+    const displayName = peerDisplayNames.get(userId);
+    if (displayName) {
+      updateAvatarsByDisplayName(displayName, true);
+    }
+  });
 
   if (hasConnectedPeers) {
     $.statusSpan.innerHTML = peersText
@@ -80,6 +94,10 @@ function setupDataChannel(peerId, channel) {
       const message = JSON.parse(event.data);
       if (message.type === "receipt") {
         handleReadReceipt(message);
+      } else if (message.type === "typing") {
+        handleTypingIndicator(peerId, message);
+      } else if (message.type === "reaction") {
+        handleReaction(message);
       } else {
         displayMessage(message);
         if (message.messageId) {
@@ -119,6 +137,158 @@ function handleReadReceipt(receipt) {
       statusSpan.title = "Delivered";
     }
   }
+}
+
+// Typing indicator
+let typingTimeout = null;
+const typingPeers = new Map(); // peerId -> { displayName, timeout }
+
+export function broadcastTyping(isTyping) {
+  if (isTyping) {
+    if (typingTimeout) {
+      clearTimeout(typingTimeout);
+    }
+    typingTimeout = setTimeout(() => {
+      broadcastViaDataChannel({ type: "typing", isTyping: false });
+      typingTimeout = null;
+    }, 2000);
+    broadcastViaDataChannel({
+      type: "typing",
+      isTyping: true,
+      displayName: sessionInfo.displayName,
+    });
+  }
+}
+
+function handleTypingIndicator(peerId, data) {
+  const typingDiv = document.getElementById("typingIndicator");
+  if (!typingDiv) {
+    return;
+  }
+
+  if (data.isTyping) {
+    const existing = typingPeers.get(peerId);
+    if (existing) {
+      clearTimeout(existing.timeout);
+    }
+    const timeout = setTimeout(() => {
+      typingPeers.delete(peerId);
+      updateTypingDisplay();
+    }, 3000);
+    typingPeers.set(peerId, {
+      displayName: data.displayName || "Someone",
+      timeout,
+    });
+  } else {
+    const existing = typingPeers.get(peerId);
+    if (existing) {
+      clearTimeout(existing.timeout);
+    }
+    typingPeers.delete(peerId);
+  }
+  updateTypingDisplay();
+}
+
+function updateTypingDisplay() {
+  const typingDiv = document.getElementById("typingIndicator");
+  if (!typingDiv) {
+    return;
+  }
+  const names = Array.from(typingPeers.values()).map((p) => p.displayName);
+  let text = "";
+  if (names.length === 1) {
+    text = `${names[0]} is typing...`;
+  } else if (names.length === 2) {
+    text = `${names[0]} and ${names[1]} are typing...`;
+  } else if (names.length > 2) {
+    text = `${names[0]} and ${names.length - 1} others are typing...`;
+  }
+  typingDiv.textContent = text;
+  typingDiv.style.display = names.length > 0 ? "block" : "none";
+}
+
+// Reactions - one reaction per user per message
+export function sendReaction(messageId, emoji) {
+  const userId = sessionInfo.userId;
+  if (!messageReactions.has(messageId)) {
+    messageReactions.set(messageId, new Map());
+  }
+  const reactions = messageReactions.get(messageId);
+
+  // Find and remove user's existing reaction (if any)
+  let oldEmoji = null;
+  for (const [e, users] of reactions.entries()) {
+    if (users.has(userId)) {
+      oldEmoji = e;
+      users.delete(userId);
+      if (users.size === 0) {
+        reactions.delete(e);
+      }
+      break;
+    }
+  }
+
+  // If clicking same emoji, just remove (toggle off)
+  // If different emoji, add new one
+  let added = false;
+  if (oldEmoji !== emoji) {
+    if (!reactions.has(emoji)) {
+      reactions.set(emoji, new Set());
+    }
+    reactions.get(emoji).add(userId);
+    added = true;
+  }
+
+  updateReactionDisplay(messageId);
+  broadcastViaDataChannel({
+    type: "reaction",
+    messageId,
+    emoji,
+    userId,
+    added,
+    oldEmoji,
+  });
+
+  // Persist to server
+  apiFetch("/api/v1/reactions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ messageId, emoji, added }),
+  }).catch((err) => console.error("Failed to save reaction:", err));
+}
+
+function handleReaction(data) {
+  const { messageId, emoji, userId, added, oldEmoji } = data;
+  if (!messageReactions.has(messageId)) {
+    messageReactions.set(messageId, new Map());
+  }
+  const reactions = messageReactions.get(messageId);
+
+  // Remove old emoji if user switched reactions
+  if (oldEmoji && oldEmoji !== emoji) {
+    const oldUsers = reactions.get(oldEmoji);
+    if (oldUsers) {
+      oldUsers.delete(userId);
+      if (oldUsers.size === 0) {
+        reactions.delete(oldEmoji);
+      }
+    }
+  }
+
+  // Handle current emoji
+  if (!reactions.has(emoji)) {
+    reactions.set(emoji, new Set());
+  }
+  const users = reactions.get(emoji);
+  if (added) {
+    users.add(userId);
+  } else {
+    users.delete(userId);
+    if (users.size === 0) {
+      reactions.delete(emoji);
+    }
+  }
+  updateReactionDisplay(messageId);
 }
 
 // Create peer connection
@@ -237,6 +407,13 @@ export function closePeerConnection(peerId) {
   updateLastSeen(peerId, now);
   updateAvatarStatus(peerId, false, now);
 
+  // Update all avatars with this peer's displayName to offline
+  const displayName = peerDisplayNames.get(peerId);
+  if (displayName) {
+    updateAvatarsByDisplayName(displayName, false, now);
+    peerDisplayNames.delete(peerId);
+  }
+
   const videoEl = document.getElementById(`remote-video-${peerId}`);
   if (videoEl) {
     videoEl.parentElement.remove();
@@ -274,6 +451,13 @@ async function handleSignalingEvent(event) {
     case "peer-join":
       if (fromUserId !== sessionInfo.userId) {
         console.log(`Peer joined: ${fromUserId}. Initiating connection...`);
+        // Store peer's displayName for online status tracking
+        if (data?.displayName) {
+          peerDisplayNames.set(fromUserId, data.displayName);
+          registerUserDisplayName(data.displayName, fromUserId);
+          // Update all avatars with this displayName to online
+          updateAvatarsByDisplayName(data.displayName, true);
+        }
         await createPeerConnection(fromUserId, true);
       }
       break;

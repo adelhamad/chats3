@@ -2,7 +2,22 @@
 import crypto from "crypto";
 
 import { checkAndStoreNonce } from "./nonce-store.js";
+import { INTEGRATORS } from "../../constants/index.js";
 
+// Convert array to Map for efficient lookup
+export function getIntegratorsMap() {
+  const map = new Map();
+  for (const integrator of INTEGRATORS) {
+    map.set(integrator.id, {
+      id: integrator.id,
+      secret: integrator.secret,
+      allowedOrigins: integrator.allowedOrigins || [],
+    });
+  }
+  return map;
+}
+
+// Keep for backward compatibility with tests
 export function parseIntegrators(integratorsJson) {
   try {
     const integrators = JSON.parse(integratorsJson);

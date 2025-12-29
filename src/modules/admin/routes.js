@@ -1,6 +1,7 @@
 // Admin routes
 import { z } from "zod";
 
+import { ADMIN_PASSWORD } from "../../constants/index.js";
 import { success, fail } from "../../constants/response.js";
 import {
   createConversation,
@@ -27,7 +28,7 @@ const viewConversationSchema = z.object({
 
 export default async function adminRoutes(fastify) {
   const verifyAdminPassword = (password) => {
-    if (password !== fastify.config.ADMIN_PASSWORD) {
+    if (password !== ADMIN_PASSWORD) {
       throw new Error("Invalid admin password");
     }
   };

@@ -16,6 +16,7 @@ import {
   setupSignalingSSE,
   sendSignalingEvent,
   broadcastViaDataChannel,
+  broadcastTyping,
 } from "./signaling.js";
 import {
   $,
@@ -80,6 +81,7 @@ async function init() {
     $.messageInput.addEventListener("input", () => {
       $.messageInput.style.height = "auto";
       $.messageInput.style.height = $.messageInput.scrollHeight + "px";
+      broadcastTyping(true);
     });
 
     $.attachButton.addEventListener("click", () => $.fileInput.click());

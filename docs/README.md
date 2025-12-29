@@ -12,8 +12,7 @@ Welcome to the Chats3 service documentation. This directory contains comprehensi
 | [Architecture](./ARCHITECTURE.md) | System architecture, data models, flows, and scalability |
 | [API Reference](./API_REFERENCE.md) | Complete API endpoint documentation |
 | [Security Analysis](./SECURITY_ANALYSIS.md) | Security features, concerns, and recommendations |
-| [Enhancements](./ENHANCEMENTS.md) | Feature roadmap and enhancement recommendations |
-| [Code Simplification](./CODE_SIMPLIFICATION.md) | Refactoring opportunities to reduce complexity |
+| [Enhancements](./ENHANCEMENTS.md) | Feature roadmap and implementation status |
 
 ---
 
@@ -98,40 +97,22 @@ Comprehensive security review.
 Future feature recommendations.
 
 **Contents:**
-- High priority:
+- ✅ Implemented:
   - Input validation hardening
-  - Participant limits
+  - Participant limits (max 50)
   - Graceful shutdown
+  - Typing indicators (P2P)
+  - Read receipts (P2P)
+  - S3 retry logic
+  - Message reactions (configurable)
+- ⏭️ Skipped:
   - API documentation (OpenAPI)
-- Medium priority:
-  - Typing indicators
-  - Read receipts
   - Message pagination
   - Presence status
-  - S3 retry logic
-- Low priority:
   - WebSocket support
   - Message editing/deletion
-  - Reactions
   - Image thumbnails
 - Implementation roadmap
-
----
-
-### 🔧 [Code Simplification](./CODE_SIMPLIFICATION.md)
-Opportunities to reduce complexity.
-
-**Contents:**
-- Summary of savings (~365 lines, ~20% reduction)
-- Duplicate code patterns:
-  - Cookie options utility
-  - Error handling pattern
-  - Response helpers
-  - Cleanup intervals
-  - Session creation logic
-- Large file splitting (room.js)
-- Before/after examples
-- Migration strategy
 
 ---
 
@@ -149,8 +130,7 @@ Opportunities to reduce complexity.
 
 ### For Code Reviewers
 1. Review [Security Analysis](./SECURITY_ANALYSIS.md) for security posture
-2. Check [Code Simplification](./CODE_SIMPLIFICATION.md) for refactoring opportunities
-3. See [Enhancements](./ENHANCEMENTS.md) for future work
+2. See [Enhancements](./ENHANCEMENTS.md) for implemented features and future work
 
 ---
 
@@ -184,6 +164,6 @@ When adding new documentation:
 
 ## Version
 
-Documentation last updated: **December 28, 2025**
+Documentation last updated: **December 29, 2025**
 
 Compatible with Chats3 version: **1.0.0**

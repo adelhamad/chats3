@@ -14,7 +14,7 @@ import fastify from "fastify";
 
 import { envOptions } from "./config/index.js";
 import { adminRoutes } from "./modules/admin/index.js";
-import { parseIntegrators } from "./modules/auth/index.js";
+import { getIntegratorsMap } from "./modules/auth/index.js";
 import { chatRoutes } from "./modules/chat/index.js";
 import { initializeS3 } from "./modules/storage/index.js";
 import { viewRoutes } from "./modules/ui/index.js";
@@ -72,7 +72,7 @@ export async function buildApp(opts = {}) {
     reply.header("X-XSS-Protection", "1; mode=block");
 
     // Dynamic frame-ancestors based on integrators
-    const integrators = parseIntegrators(app.config.INTEGRATORS_JSON);
+    const integrators = getIntegratorsMap();
     const allowedOrigins = Array.from(integrators.values())
       .flatMap((i) => i.allowedOrigins)
       .join(" ");
@@ -124,6 +124,16 @@ export async function buildApp(opts = {}) {
 export async function start() {
   try {
     const app = await buildApp();
+
+    // Graceful shutdown handler
+    const shutdown = async (signal) => {
+      app.log.info({ signal }, "Shutting down...");
+      await app.close();
+      process.exit(0);
+    };
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
+
     await app.listen({
       port: app.config.PORT,
       host: app.config.HOST,
