@@ -4,4 +4,5 @@ export {
   parseIntegrators,
   getIntegratorsMap,
   validateTicket,
+  isOriginAllowed,
 } from "./handshake.js";

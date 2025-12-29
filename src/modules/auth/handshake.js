@@ -4,6 +4,38 @@ import crypto from "crypto";
 import { checkAndStoreNonce } from "./nonce-store.js";
 import { INTEGRATORS } from "../../constants/index.js";
 
+// Check if an origin matches any allowed pattern
+// Supports: exact match, wildcard subdomains (https://*.domain.com)
+export function isOriginAllowed(origin, allowedOrigins) {
+  try {
+    const url = new URL(origin);
+
+    for (const pattern of allowedOrigins) {
+      // Exact match
+      if (pattern === origin) {
+        return true;
+      }
+
+      // Wildcard subdomain (https://*.vercel.app)
+      if (pattern.includes("*.")) {
+        const patternUrl = new URL(pattern.replace("*.", "wildcard."));
+        const baseDomain = patternUrl.hostname.replace("wildcard.", "");
+        if (
+          url.protocol === patternUrl.protocol &&
+          (url.hostname === baseDomain ||
+            url.hostname.endsWith(`.${baseDomain}`))
+        ) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // Convert array to Map for efficient lookup
 export function getIntegratorsMap() {
   const map = new Map();
@@ -98,7 +130,7 @@ export function validateTicket(ticket, signature, integrators) {
     }
 
     // Check origin
-    if (!integrator.allowedOrigins.includes(origin)) {
+    if (!isOriginAllowed(origin, integrator.allowedOrigins)) {
       return { valid: false, error: "Origin not allowed" };
     }
 
