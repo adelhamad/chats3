@@ -5,6 +5,7 @@ import { EventEmitter } from "events";
 export const signalingEmitter = new EventEmitter();
 const signalingStore = new Map(); // conversationId -> events[]
 const cursorStore = new Map(); // cursorToken -> { conversationId, index, createdAt }
+const participantsStore = new Map(); // conversationId -> Set<userId>
 
 const EVENT_TTL = 60000; // 60 seconds
 
@@ -28,7 +29,34 @@ setInterval(() => {
       cursorStore.delete(token);
     }
   }
+
+  // Cleanup empty participant sets
+  for (const [convId, participants] of participantsStore.entries()) {
+    if (participants.size === 0) {
+      participantsStore.delete(convId);
+    }
+  }
 }, 60000).unref();
+
+export function addParticipant(conversationId, userId) {
+  if (!participantsStore.has(conversationId)) {
+    participantsStore.set(conversationId, new Set());
+  }
+  participantsStore.get(conversationId).add(userId);
+}
+
+export function removeParticipant(conversationId, userId) {
+  if (participantsStore.has(conversationId)) {
+    participantsStore.get(conversationId).delete(userId);
+  }
+}
+
+export function getParticipants(conversationId) {
+  if (!participantsStore.has(conversationId)) {
+    return [];
+  }
+  return Array.from(participantsStore.get(conversationId));
+}
 
 export function addSignalingEvent(conversationId, event) {
   if (!signalingStore.has(conversationId)) {

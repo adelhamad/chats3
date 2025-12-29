@@ -523,6 +523,43 @@ function handleNewMessage(data) {
   }
 }
 
+// Handle room-state event (initial participant list)
+async function handleRoomState(data) {
+  const { participants } = data;
+  if (!participants || !Array.isArray(participants)) {
+    return;
+  }
+
+  console.log("Received room state:", participants);
+
+  for (const participant of participants) {
+    // Handle both object (new) and string (legacy/fallback) formats
+    const peerId =
+      typeof participant === "object" ? participant.userId : participant;
+    const displayName =
+      typeof participant === "object" ? participant.displayName : undefined;
+
+    if (peerId === sessionInfo.userId) {
+      continue;
+    }
+
+    // Store display name
+    if (displayName) {
+      peerDisplayNames.set(peerId, displayName);
+    }
+
+    // If I have a lower ID, I must initiate connection to existing peers
+    if (sessionInfo.userId < peerId) {
+      if (!peerConnections.has(peerId)) {
+        console.log(
+          `Room state: Found peer ${peerId}. We initiate (lower ID).`,
+        );
+        await createPeerConnection(peerId, true);
+      }
+    }
+  }
+}
+
 // Handle signaling event
 async function handleSignalingEvent(event) {
   const { type, fromUserId, data } = event;
@@ -533,6 +570,9 @@ async function handleSignalingEvent(event) {
   }
 
   switch (type) {
+    case "room-state":
+      await handleRoomState(data);
+      break;
     case "peer-join":
       await handlePeerJoin(fromUserId, data);
       break;

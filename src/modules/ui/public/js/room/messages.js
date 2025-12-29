@@ -100,6 +100,15 @@ function getAvatar(name, userId, avatarUrl) {
 
 function renderMessageBody(message, bodyDiv) {
   if (message.type === "file") {
+    // Show text if it's not the default file marker
+    if (message.body && !message.body.startsWith("[File] ")) {
+      const textDiv = document.createElement("div");
+      textDiv.textContent = message.body;
+      textDiv.style.marginBottom = "8px";
+      textDiv.style.whiteSpace = "pre-wrap";
+      bodyDiv.appendChild(textDiv);
+    }
+
     if (message.mimetype?.startsWith("image/")) {
       renderImageAttachment(message, bodyDiv);
     } else {

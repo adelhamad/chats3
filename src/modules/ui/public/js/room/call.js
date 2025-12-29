@@ -21,6 +21,9 @@ export async function startCall() {
       audio: true,
     });
     setLocalStream(stream);
+
+    // Ensure local video is muted to prevent feedback
+    $.localVideo.muted = true;
     $.localVideo.srcObject = stream;
     $.videoContainer.style.display = "block";
 

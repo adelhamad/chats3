@@ -4,4 +4,7 @@ export {
   pollSignalingEvents,
   clearConversationSignaling,
   signalingEmitter,
+  addParticipant,
+  removeParticipant,
+  getParticipants,
 } from "./signaling-store.js";

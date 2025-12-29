@@ -23,6 +23,9 @@ import {
   addSignalingEvent,
   pollSignalingEvents,
   signalingEmitter,
+  addParticipant,
+  removeParticipant,
+  getParticipants,
 } from "../signaling/index.js";
 import { putReactions, getReactions } from "../storage/index.js";
 
@@ -143,9 +146,10 @@ export default async function chatRoutes(fastify) {
     }
 
     const existingSessions = getSessionsByConversation(conversationId);
+    const activeParticipants = getParticipants(conversationId);
 
-    // Check participant limit
-    if (existingSessions.length >= MAX_PARTICIPANTS) {
+    // Check participant limit (only count active participants)
+    if (activeParticipants.length >= MAX_PARTICIPANTS) {
       reply.status(403);
       return fail.parse({
         message: "Conversation is full",
@@ -153,15 +157,31 @@ export default async function chatRoutes(fastify) {
       });
     }
 
-    if (
-      existingSessions.some(
-        (s) => s.displayName.toLowerCase() === displayName.toLowerCase(),
-      )
-    ) {
+    // Check if name is taken by an ACTIVE participant
+    const nameTakenByActiveUser = existingSessions.some(
+      (s) =>
+        s.displayName.toLowerCase() === displayName.toLowerCase() &&
+        activeParticipants.includes(s.userId),
+    );
+
+    if (nameTakenByActiveUser) {
       reply.status(409);
       return fail.parse({
         message: "Display name is already taken in this conversation",
       });
+    }
+
+    // If name is taken by an INACTIVE user, we can proceed (new session will be created)
+    // Ideally we should clean up the old session, but it will expire eventually.
+    // Or we could find and delete it here.
+    const inactiveSession = existingSessions.find(
+      (s) =>
+        s.displayName.toLowerCase() === displayName.toLowerCase() &&
+        !activeParticipants.includes(s.userId),
+    );
+
+    if (inactiveSession) {
+      deleteSession(inactiveSession.sessionId);
     }
 
     const session = createSession({
@@ -360,6 +380,29 @@ export default async function chatRoutes(fastify) {
         `data: ${JSON.stringify({ type: "system", data: "connected" })}\n\n`,
       );
 
+      // Add to active participants
+      addParticipant(conversationId, userId);
+
+      // Send current room state (active participants with details)
+      const activeUserIds = getParticipants(conversationId);
+      const allSessions = getSessionsByConversation(conversationId);
+
+      const participantsDetails = activeUserIds.map((uid) => {
+        const session = allSessions.find((s) => s.userId === uid);
+        return {
+          userId: uid,
+          displayName: session ? session.displayName : "Unknown",
+          isMe: uid === userId,
+        };
+      });
+
+      reply.raw.write(
+        `data: ${JSON.stringify({
+          type: "room-state",
+          data: { participants: participantsDetails },
+        })}\n\n`,
+      );
+
       const cursor = request.query.cursor || request.headers["last-event-id"];
       if (cursor) {
         const { events } = pollSignalingEvents(conversationId, userId, cursor);
@@ -394,6 +437,9 @@ export default async function chatRoutes(fastify) {
         request.log.info({ msg: "SSE connection closed", userId });
         signalingEmitter.off(`event-${conversationId}`, onEvent);
         clearInterval(heartbeat);
+
+        // Remove from active participants
+        removeParticipant(conversationId, userId);
 
         // Broadcast peer-leave when SSE disconnects (tab close, network loss, etc.)
         addSignalingEvent(conversationId, {

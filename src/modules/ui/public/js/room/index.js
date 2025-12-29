@@ -33,10 +33,17 @@ import {
 async function init() {
   try {
     const sessionResponse = await apiFetch("/api/v1/session");
+
+    if (sessionResponse.status === 401) {
+      console.warn("Session invalid or expired. Redirecting to join.");
+      window.location.href = `/join?conversationId=${window.CONVERSATION_ID}`;
+      return;
+    }
+
     const sessionData = await sessionResponse.json();
 
     if (!sessionData.success) {
-      alert("No valid session. Please join again.");
+      console.warn("Session check failed:", sessionData.message);
       window.location.href = `/join?conversationId=${window.CONVERSATION_ID}`;
       return;
     }
