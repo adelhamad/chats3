@@ -1,3 +1,4 @@
+/* eslint-disable sonarjs/cognitive-complexity */
 /* eslint-disable no-undef */
 // Signaling and WebRTC peer connections
 
@@ -289,8 +290,20 @@ function handleReaction(data) {
 
 // Create peer connection
 export async function createPeerConnection(peerId, initiator) {
+  // Check if we already have a healthy connection
   if (peerConnections.has(peerId)) {
-    return peerConnections.get(peerId);
+    const existingPc = peerConnections.get(peerId);
+    const state = existingPc.connectionState;
+    // If connection is still being established or is connected, reuse it
+    if (state === "new" || state === "connecting" || state === "connected") {
+      console.log(
+        `Reusing existing connection with ${peerId} (state: ${state})`,
+      );
+      return existingPc;
+    }
+    // Otherwise close the stale connection
+    console.log(`Closing stale connection with ${peerId} (state: ${state})`);
+    closePeerConnection(peerId);
   }
 
   const pc = new RTCPeerConnection({
@@ -307,8 +320,35 @@ export async function createPeerConnection(peerId, initiator) {
 
   pc.onconnectionstatechange = () => {
     console.log(`Connection state with ${peerId}:`, pc.connectionState);
-    if (pc.connectionState === "failed" || pc.connectionState === "closed") {
+    if (pc.connectionState === "failed") {
       closePeerConnection(peerId);
+      // Retry connection if we're the initiator (lower userId)
+      if (sessionInfo.userId < peerId) {
+        console.log(`Connection failed with ${peerId}, retrying in 2s...`);
+        setTimeout(() => {
+          // Only retry if we still don't have a connection and SSE is open
+          if (
+            !peerConnections.has(peerId) &&
+            window.signalingEventSource?.readyState === EventSource.OPEN
+          ) {
+            createPeerConnection(peerId, true);
+          }
+        }, 2000);
+      }
+    } else if (pc.connectionState === "closed") {
+      closePeerConnection(peerId);
+    } else if (pc.connectionState === "disconnected") {
+      // Disconnected state can recover, wait before cleaning up
+      console.log(
+        `Connection disconnected with ${peerId}, waiting for recovery...`,
+      );
+      setTimeout(() => {
+        // Check if still in disconnected state
+        if (pc.connectionState === "disconnected") {
+          console.log(`Connection still disconnected with ${peerId}, closing`);
+          closePeerConnection(peerId);
+        }
+      }, 5000);
     }
     updateConnectionStatus();
   };
@@ -381,7 +421,30 @@ async function handleOffer(peerId, offer) {
     await pc.setLocalDescription({ type: "rollback" });
   }
 
+  // If we have an existing stable connection, ignore the offer
+  // (this can happen during reconnection races)
+  if (
+    pc &&
+    pc.signalingState === "stable" &&
+    pc.connectionState === "connected"
+  ) {
+    console.log(
+      `Ignoring offer from ${peerId}: already have stable connection`,
+    );
+    return;
+  }
+
   if (!pc) {
+    pc = await createPeerConnection(peerId, false);
+  } else if (
+    pc.signalingState !== "stable" &&
+    pc.signalingState !== "have-local-offer"
+  ) {
+    // Connection is in a weird state, recreate it
+    console.log(
+      `Recreating connection with ${peerId} due to bad state: ${pc.signalingState}`,
+    );
+    closePeerConnection(peerId);
     pc = await createPeerConnection(peerId, false);
   }
 
@@ -495,6 +558,19 @@ export function broadcastViaDataChannel(message) {
   }
 }
 
+// Check if a peer connection is healthy
+function isPeerConnectionHealthy(peerId) {
+  const pc = peerConnections.get(peerId);
+  if (!pc) {
+    return false;
+  }
+
+  const state = pc.connectionState;
+  // Consider "new", "connecting", "connected" as healthy
+  // "failed", "closed", "disconnected" need reconnection
+  return state === "new" || state === "connecting" || state === "connected";
+}
+
 // Handle peer-join event
 async function handlePeerJoin(fromUserId, data) {
   if (fromUserId === sessionInfo.userId) {
@@ -504,6 +580,12 @@ async function handlePeerJoin(fromUserId, data) {
   // Store peer's displayName for video labels
   if (data?.displayName) {
     peerDisplayNames.set(fromUserId, data.displayName);
+  }
+
+  // Clean up stale connection before deciding to initiate
+  if (peerConnections.has(fromUserId) && !isPeerConnectionHealthy(fromUserId)) {
+    console.log(`Peer ${fromUserId} has stale connection, cleaning up`);
+    closePeerConnection(fromUserId);
   }
 
   // Only the peer with lower userId initiates to prevent glare
@@ -547,6 +629,14 @@ async function handleRoomState(data) {
       peerDisplayNames.set(peerId, displayName);
     }
 
+    // Clean up stale connection before deciding to initiate
+    if (peerConnections.has(peerId) && !isPeerConnectionHealthy(peerId)) {
+      console.log(
+        `Room state: Peer ${peerId} has stale connection, cleaning up`,
+      );
+      closePeerConnection(peerId);
+    }
+
     // If I have a lower ID, I must initiate connection to existing peers
     if (sessionInfo.userId < peerId) {
       if (!peerConnections.has(peerId)) {
@@ -554,6 +644,21 @@ async function handleRoomState(data) {
           `Room state: Found peer ${peerId}. We initiate (lower ID).`,
         );
         await createPeerConnection(peerId, true);
+      }
+    } else {
+      // Higher ID users should send a peer-join to trigger the lower ID user to initiate
+      // This handles the case where the lower ID user joined first but doesn't know about us
+      if (!peerConnections.has(peerId)) {
+        console.log(
+          `Room state: Found peer ${peerId}. Sending peer-join to trigger their initiation.`,
+        );
+        // Small delay to ensure they've processed room-state
+        setTimeout(() => {
+          sendSignalingEvent("peer-join", undefined, {
+            userId: sessionInfo.userId,
+            displayName: sessionInfo.displayName,
+          });
+        }, 500);
       }
     }
   }
@@ -607,6 +712,7 @@ async function handleSignalingEvent(event) {
 let sseReconnectAttempts = 0;
 const SSE_MAX_RECONNECT_ATTEMPTS = 5;
 const SSE_INITIAL_DELAY = 2000; // 2 seconds
+let isFirstConnection = true;
 
 export function setupSignalingSSE() {
   console.log("Setting up SSE connection...");
@@ -621,13 +727,29 @@ export function setupSignalingSSE() {
 
   eventSource.onopen = () => {
     console.log("SSE connection opened");
+    const wasReconnect = !isFirstConnection;
+    isFirstConnection = false;
     sseReconnectAttempts = 0; // Reset on successful connection
     updateConnectionStatus();
-    // Re-announce presence after reconnection
-    sendSignalingEvent("peer-join", undefined, {
-      userId: sessionInfo.userId,
-      displayName: sessionInfo.displayName,
-    });
+
+    // On reconnection, close stale peer connections so room-state can reinitiate them
+    if (wasReconnect) {
+      console.log("SSE reconnected, cleaning up stale peer connections");
+      for (const [peerId] of peerConnections) {
+        if (!isPeerConnectionHealthy(peerId)) {
+          closePeerConnection(peerId);
+        }
+      }
+    }
+
+    // Re-announce presence after connection (for both first and reconnection)
+    // Adding a small delay to ensure we've processed room-state first
+    setTimeout(() => {
+      sendSignalingEvent("peer-join", undefined, {
+        userId: sessionInfo.userId,
+        displayName: sessionInfo.displayName,
+      });
+    }, 300);
   };
 
   eventSource.onmessage = async (event) => {
