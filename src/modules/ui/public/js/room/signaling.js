@@ -1,4 +1,3 @@
-/* eslint-disable sonarjs/cognitive-complexity */
 /* eslint-disable no-undef */
 // Signaling and WebRTC peer connections
 
@@ -632,6 +631,9 @@ function handleNewMessage(data) {
   }
 }
 
+// Track if we've already sent peer-join to prevent duplicates
+let peerJoinSent = false;
+
 // Handle room-state event (initial participant list)
 async function handleRoomState(data) {
   const { participants } = data;
@@ -669,22 +671,9 @@ async function handleRoomState(data) {
         );
         await createPeerConnection(peerId, true);
       }
-    } else {
-      // Higher ID users should send a peer-join to trigger the lower ID user to initiate
-      // This handles the case where the lower ID user joined first but doesn't know about us
-      if (!peerConnections.has(peerId)) {
-        console.log(
-          `Room state: Found peer ${peerId}. Sending peer-join to trigger their initiation.`,
-        );
-        // Small delay to ensure they've processed room-state
-        setTimeout(() => {
-          sendSignalingEvent("peer-join", undefined, {
-            userId: sessionInfo.userId,
-            displayName: sessionInfo.displayName,
-          });
-        }, 500);
-      }
     }
+    // Note: Higher ID users don't need to send peer-join here
+    // The SSE onopen handler already sends one peer-join for everyone
   }
 }
 
@@ -764,16 +753,25 @@ export function setupSignalingSSE() {
           closePeerConnection(peerId);
         }
       }
+      // Reset peer-join flag on reconnect to allow re-announcement
+      peerJoinSent = false;
     }
 
-    // Re-announce presence after connection (for both first and reconnection)
-    // Adding a small delay to ensure we've processed room-state first
-    setTimeout(() => {
-      sendSignalingEvent("peer-join", undefined, {
-        userId: sessionInfo.userId,
-        displayName: sessionInfo.displayName,
-      });
-    }, 300);
+    // Send peer-join once after receiving room-state
+    // The room-state comes from SSE before any signaling events
+    // We wait a bit to ensure room-state is processed first
+    if (!peerJoinSent) {
+      setTimeout(() => {
+        if (!peerJoinSent) {
+          peerJoinSent = true;
+          console.log("Sending peer-join announcement");
+          sendSignalingEvent("peer-join", undefined, {
+            userId: sessionInfo.userId,
+            displayName: sessionInfo.displayName,
+          });
+        }
+      }, 500);
+    }
   };
 
   eventSource.onmessage = async (event) => {

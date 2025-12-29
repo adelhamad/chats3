@@ -412,6 +412,11 @@ export default async function chatRoutes(fastify) {
       }
 
       const onEvent = (event) => {
+        // Don't echo broadcast events back to sender (peer-join, peer-leave, new-message)
+        if (!event.toUserId && event.fromUserId === userId) {
+          return;
+        }
+        // Send if: broadcast (no toUserId), or targeted to this user, or sent by this user (for targeted events like offer/answer)
         if (
           !event.toUserId ||
           event.toUserId === userId ||
@@ -443,12 +448,30 @@ export default async function chatRoutes(fastify) {
         const isFullyDisconnected = removeParticipant(conversationId, userId);
 
         if (isFullyDisconnected) {
-          // Broadcast peer-leave when SSE disconnects (tab close, network loss, etc.)
-          addSignalingEvent(conversationId, {
-            type: "peer-leave",
-            fromUserId: userId,
-            data: {},
-          });
+          // Add a grace period before broadcasting peer-leave
+          // This handles page refresh scenarios where the new connection
+          // should be established before we broadcast the leave
+          setTimeout(() => {
+            // Check if user has reconnected during the grace period
+            const currentParticipants = getParticipants(conversationId);
+            if (!currentParticipants.includes(userId)) {
+              // User is still disconnected, broadcast peer-leave
+              request.log.info({
+                msg: "User fully disconnected, broadcasting peer-leave",
+                userId,
+              });
+              addSignalingEvent(conversationId, {
+                type: "peer-leave",
+                fromUserId: userId,
+                data: {},
+              });
+            } else {
+              request.log.info({
+                msg: "User reconnected during grace period",
+                userId,
+              });
+            }
+          }, 2000); // 2 second grace period for refresh
         }
       });
 
