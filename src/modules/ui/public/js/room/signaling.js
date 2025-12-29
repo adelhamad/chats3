@@ -21,6 +21,9 @@ import {
 // Track peer displayNames for video labels
 const peerDisplayNames = new Map(); // peerId -> displayName
 
+// Queue ICE candidates until remote description is set
+const pendingIceCandidates = new Map(); // peerId -> candidate[]
+
 // Send signaling event
 export async function sendSignalingEvent(type, toUserId, data) {
   await apiFetch("/api/v1/signaling", {
@@ -361,8 +364,33 @@ export async function createPeerConnection(peerId, initiator) {
 
 // Handle offer
 async function handleOffer(peerId, offer) {
-  const pc = await createPeerConnection(peerId, false);
+  let pc = peerConnections.get(peerId);
+
+  // Handle glare: if we already sent an offer, use tiebreaker (lower ID wins as initiator)
+  if (pc && pc.signalingState === "have-local-offer") {
+    if (sessionInfo.userId < peerId) {
+      // We win, ignore their offer - they should accept our offer
+      console.log(`Glare with ${peerId}: we win, ignoring their offer`);
+      return;
+    }
+    // They win, rollback our offer and accept theirs
+    console.log(`Glare with ${peerId}: they win, rolling back`);
+    await pc.setLocalDescription({ type: "rollback" });
+  }
+
+  if (!pc) {
+    pc = await createPeerConnection(peerId, false);
+  }
+
   await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+  // Process queued ICE candidates
+  const queued = pendingIceCandidates.get(peerId) || [];
+  pendingIceCandidates.delete(peerId);
+  for (const candidate of queued) {
+    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+  }
+
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   await sendSignalingEvent("answer", peerId, answer);
@@ -371,21 +399,48 @@ async function handleOffer(peerId, offer) {
 // Handle answer
 async function handleAnswer(peerId, answer) {
   const pc = peerConnections.get(peerId);
-  if (pc) {
-    await pc.setRemoteDescription(new RTCSessionDescription(answer));
+  if (!pc) {
+    return;
+  }
+
+  // Only accept answer if we're expecting one
+  if (pc.signalingState !== "have-local-offer") {
+    console.log(
+      `Ignoring answer from ${peerId}: wrong state ${pc.signalingState}`,
+    );
+    return;
+  }
+
+  await pc.setRemoteDescription(new RTCSessionDescription(answer));
+
+  // Process queued ICE candidates
+  const queued = pendingIceCandidates.get(peerId) || [];
+  pendingIceCandidates.delete(peerId);
+  for (const candidate of queued) {
+    await pc.addIceCandidate(new RTCIceCandidate(candidate));
   }
 }
 
 // Handle ICE candidate
 async function handleIceCandidate(peerId, candidate) {
   const pc = peerConnections.get(peerId);
-  if (pc) {
-    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+
+  // Queue if no connection yet or remote description not set
+  if (!pc || !pc.remoteDescription) {
+    if (!pendingIceCandidates.has(peerId)) {
+      pendingIceCandidates.set(peerId, []);
+    }
+    pendingIceCandidates.get(peerId).push(candidate);
+    return;
   }
+
+  await pc.addIceCandidate(new RTCIceCandidate(candidate));
 }
 
 // Close peer connection
 export function closePeerConnection(peerId) {
+  pendingIceCandidates.delete(peerId);
+
   const pc = peerConnections.get(peerId);
   if (pc) {
     pc.close();
@@ -437,21 +492,49 @@ export function broadcastViaDataChannel(message) {
   }
 }
 
+// Handle peer-join event
+async function handlePeerJoin(fromUserId, data) {
+  if (fromUserId === sessionInfo.userId) {
+    return;
+  }
+
+  // Store peer's displayName for video labels
+  if (data?.displayName) {
+    peerDisplayNames.set(fromUserId, data.displayName);
+  }
+
+  // Only the peer with lower userId initiates to prevent glare
+  const shouldInitiate = sessionInfo.userId < fromUserId;
+  if (shouldInitiate && !peerConnections.has(fromUserId)) {
+    console.log(`Peer joined: ${fromUserId}. We initiate.`);
+    await createPeerConnection(fromUserId, true);
+  } else if (!shouldInitiate) {
+    console.log(`Peer joined: ${fromUserId}. Waiting for their offer.`);
+  }
+}
+
+// Handle new-message event
+function handleNewMessage(data) {
+  if (
+    data.messageId &&
+    !document.querySelector(`[data-message-id="${data.messageId}"]`)
+  ) {
+    displayMessage(data);
+  }
+}
+
 // Handle signaling event
 async function handleSignalingEvent(event) {
   const { type, fromUserId, data } = event;
-  console.log(`Handling signaling event: ${type} from ${fromUserId}`);
+
+  // Skip verbose logging for ice-candidate
+  if (type !== "ice-candidate") {
+    console.log(`Signaling: ${type} from ${fromUserId}`);
+  }
 
   switch (type) {
     case "peer-join":
-      if (fromUserId !== sessionInfo.userId) {
-        console.log(`Peer joined: ${fromUserId}. Initiating connection...`);
-        // Store peer's displayName for video labels
-        if (data?.displayName) {
-          peerDisplayNames.set(fromUserId, data.displayName);
-        }
-        await createPeerConnection(fromUserId, true);
-      }
+      await handlePeerJoin(fromUserId, data);
       break;
     case "offer":
       if (event.toUserId === sessionInfo.userId) {
@@ -476,12 +559,7 @@ async function handleSignalingEvent(event) {
       await endCall(true);
       break;
     case "new-message":
-      if (
-        data.messageId &&
-        !document.querySelector(`[data-message-id="${data.messageId}"]`)
-      ) {
-        displayMessage(data);
-      }
+      handleNewMessage(data);
       break;
   }
 }

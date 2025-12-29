@@ -2,7 +2,7 @@ import crypto from "crypto";
 import http from "http";
 
 const PORT = 4000;
-const CHATS3_URL = "http://localhost:3000";
+const CHATS3_URL = "https://chat.kasroad.com";
 const INTEGRATOR_ID = "test-app";
 const INTEGRATOR_SECRET = "test-secret-123";
 

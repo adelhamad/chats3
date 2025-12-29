@@ -8,6 +8,7 @@ import {
   clearNonceStore,
   parseIntegrators,
   validateTicket,
+  isOriginAllowed,
 } from "../src/modules/auth/index.js";
 
 describe("Authentication Module", () => {
@@ -224,6 +225,43 @@ describe("Authentication Module", () => {
       const result2 = validateTicket(ticket, signature, integrators);
       assert.strictEqual(result2.valid, false);
       assert.ok(result2.error.includes("replay attack"));
+    });
+  });
+
+  describe("Origin Matching", () => {
+    test("isOriginAllowed should match exact origin", () => {
+      const origins = ["https://example.com", "https://other.com"];
+      assert.strictEqual(isOriginAllowed("https://example.com", origins), true);
+      assert.strictEqual(isOriginAllowed("https://other.com", origins), true);
+      assert.strictEqual(isOriginAllowed("https://unknown.com", origins), false);
+    });
+
+    test("isOriginAllowed should match exact origin with port", () => {
+      const origins = ["http://localhost:3000", "http://localhost:4000"];
+      assert.strictEqual(isOriginAllowed("http://localhost:3000", origins), true);
+      assert.strictEqual(isOriginAllowed("http://localhost:4000", origins), true);
+      assert.strictEqual(isOriginAllowed("http://localhost:5000", origins), false);
+    });
+
+    test("isOriginAllowed should match wildcard subdomain", () => {
+      const origins = ["https://*.vercel.app"];
+      assert.strictEqual(isOriginAllowed("https://myapp.vercel.app", origins), true);
+      assert.strictEqual(isOriginAllowed("https://preview-123.vercel.app", origins), true);
+      assert.strictEqual(isOriginAllowed("https://vercel.app", origins), true);
+      assert.strictEqual(isOriginAllowed("http://myapp.vercel.app", origins), false); // wrong protocol
+      assert.strictEqual(isOriginAllowed("https://vercel.com", origins), false);
+    });
+
+    test("isOriginAllowed should match nested wildcard subdomain", () => {
+      const origins = ["https://*.example.com"];
+      assert.strictEqual(isOriginAllowed("https://app.example.com", origins), true);
+      assert.strictEqual(isOriginAllowed("https://sub.app.example.com", origins), true);
+    });
+
+    test("isOriginAllowed should reject invalid origins", () => {
+      const origins = ["https://example.com"];
+      assert.strictEqual(isOriginAllowed("not-a-url", origins), false);
+      assert.strictEqual(isOriginAllowed("", origins), false);
     });
   });
 });
