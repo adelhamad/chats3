@@ -1,7 +1,7 @@
 /* eslint-disable no-undef */
 // File handling
 
-import { $, apiFetch, setSelectedFile } from "./state.js";
+import { $, setSelectedFile } from "./state.js";
 
 export function handleFileSelect(event) {
   const file = event.target.files ? event.target.files[0] : null;
@@ -65,18 +65,41 @@ export function handlePaste(event) {
   }
 }
 
-export async function uploadFile(file) {
-  const formData = new FormData();
-  formData.append("file", file);
+export async function uploadFile(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const formData = new FormData();
+    formData.append("file", file);
 
-  const response = await apiFetch("/api/v1/attachments", {
-    method: "POST",
-    body: formData,
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable && onProgress) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        onProgress(percent);
+      }
+    });
+
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data = JSON.parse(xhr.responseText);
+          if (data.success) {
+            resolve(data.details);
+          } else {
+            reject(new Error(data.message || "Upload failed"));
+          }
+        } catch {
+          reject(new Error("Invalid server response"));
+        }
+      } else {
+        reject(new Error(`Upload failed: ${xhr.status}`));
+      }
+    });
+
+    xhr.addEventListener("error", () => reject(new Error("Network error")));
+    xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+
+    xhr.open("POST", "/api/v1/attachments");
+    xhr.withCredentials = true;
+    xhr.send(formData);
   });
-
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || "Upload failed");
-  }
-  return data.details;
 }

@@ -118,6 +118,54 @@ function handleUnload() {
   // Note: peer-leave is handled automatically by SSE connection close on server
 }
 
+// Show upload progress indicator
+function showUploadProgress() {
+  const progressDiv = document.createElement("div");
+  progressDiv.id = "uploadProgress";
+  progressDiv.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 20px 40px;
+    border-radius: 10px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  `;
+  progressDiv.innerHTML = `
+    <div style="font-size: 14px;">Uploading file...</div>
+    <div style="width: 200px; height: 6px; background: #333; border-radius: 3px; overflow: hidden;">
+      <div id="uploadProgressBar" style="width: 0%; height: 100%; background: #0088cc; transition: width 0.2s;"></div>
+    </div>
+    <div id="uploadProgressText" style="font-size: 12px;">0%</div>
+  `;
+  document.body.appendChild(progressDiv);
+  return progressDiv;
+}
+
+function updateUploadProgress(percent) {
+  const bar = document.getElementById("uploadProgressBar");
+  const text = document.getElementById("uploadProgressText");
+  if (bar) {
+    bar.style.width = `${percent}%`;
+  }
+  if (text) {
+    text.textContent = `${percent}%`;
+  }
+}
+
+function hideUploadProgress() {
+  const progressDiv = document.getElementById("uploadProgress");
+  if (progressDiv) {
+    progressDiv.remove();
+  }
+}
+
 async function sendMessage() {
   if (peerConnections.size === 0) {
     alert("Cannot send message: Waiting for other participants to join.");
@@ -139,7 +187,13 @@ async function sendMessage() {
 
   try {
     if (selectedFile) {
-      const attachment = await uploadFile(selectedFile);
+      // Show progress indicator
+      showUploadProgress();
+
+      const attachment = await uploadFile(selectedFile, updateUploadProgress);
+
+      hideUploadProgress();
+
       message = {
         ...message,
         type: "file",
@@ -163,6 +217,7 @@ async function sendMessage() {
     broadcastViaDataChannel(message);
     await saveMessageToBackend(message);
   } catch (error) {
+    hideUploadProgress();
     console.error("Failed to send message:", error);
     alert("Failed to send message: " + error.message);
   }

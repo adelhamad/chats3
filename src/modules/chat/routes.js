@@ -53,7 +53,7 @@ const messageSchema = z.object({
   attachmentId: z.string().max(100).optional(),
   filename: z.string().max(255).optional(),
   mimetype: z.string().max(100).optional(),
-  url: z.string().url().max(2048).optional(),
+  url: z.string().max(2048).optional(), // Relative or absolute URL
 });
 
 const signalingSchema = z.object({
