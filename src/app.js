@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import fastifyCookie from "@fastify/cookie";
+import fastifyCors from "@fastify/cors";
 import fastifyEnv from "@fastify/env";
 import fastifyFormBody from "@fastify/formbody";
 import fastifyMultipart from "@fastify/multipart";
@@ -33,6 +34,12 @@ export async function buildApp(opts = {}) {
 
   // Initialize S3
   initializeS3(app.config);
+
+  // Register CORS
+  await app.register(fastifyCors, {
+    origin: true, // Allow all origins in development
+    credentials: true,
+  });
 
   // Register plugins
   await app.register(fastifyCookie, {
