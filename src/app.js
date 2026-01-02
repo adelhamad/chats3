@@ -35,9 +35,40 @@ export async function buildApp(opts = {}) {
   // Initialize S3
   initializeS3(app.config);
 
-  // Register CORS
+  // Register CORS - allow requests from integrator origins
+  const integrators = getIntegratorsMap();
+  const allowedOrigins = Array.from(integrators.values()).flatMap(
+    (i) => i.allowedOrigins,
+  );
+
   await app.register(fastifyCors, {
-    origin: true, // Allow all origins in development
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or Postman)
+      if (!origin) {
+        return callback(null, true);
+      }
+      // Check if origin is in allowed list
+      if (
+        allowedOrigins.some((pattern) => {
+          if (pattern === origin) {
+            return true;
+          }
+          // Support wildcard patterns
+          if (pattern.includes("*.")) {
+            // Pattern matching for allowed origins - not actual HTTP usage
+            const baseDomain = pattern
+              .replace("https://*.", "")
+              // eslint-disable-next-line sonarjs/no-clear-text-protocols
+              .replace("http://*.", "");
+            return origin.includes(baseDomain);
+          }
+          return false;
+        })
+      ) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
   });
 
