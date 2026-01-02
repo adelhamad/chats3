@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import fastifyCookie from "@fastify/cookie";
+import fastifyCors from "@fastify/cors";
 import fastifyEnv from "@fastify/env";
 import fastifyFormBody from "@fastify/formbody";
 import fastifyMultipart from "@fastify/multipart";
@@ -33,6 +34,49 @@ export async function buildApp(opts = {}) {
 
   // Initialize S3
   initializeS3(app.config);
+
+  // Register CORS - allow requests from integrator origins
+  const integrators = getIntegratorsMap();
+  const allowedOrigins = Array.from(integrators.values()).flatMap(
+    (i) => i.allowedOrigins,
+  );
+
+  await app.register(fastifyCors, {
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or Postman)
+      if (!origin) {
+        return callback(null, true);
+      }
+      // Check if origin is in allowed list
+      if (
+        allowedOrigins.some((pattern) => {
+          if (pattern === origin) {
+            return true;
+          }
+          // Support wildcard patterns
+          if (pattern.includes("*.")) {
+            // Pattern matching for allowed origins - not actual HTTP usage
+            const baseDomain = pattern
+              .replace("https://*.", "")
+              // eslint-disable-next-line sonarjs/no-clear-text-protocols
+              .replace("http://*.", "");
+            // Check if origin ends with the base domain (e.g., example.com)
+            // or is exactly the base domain
+            return (
+              origin === `https://${baseDomain}` ||
+              origin === `http://${baseDomain}` ||
+              origin.endsWith(`.${baseDomain}`)
+            );
+          }
+          return false;
+        })
+      ) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  });
 
   // Register plugins
   await app.register(fastifyCookie, {

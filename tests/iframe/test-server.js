@@ -1,7 +1,7 @@
 import http from "http";
 
 const PORT = 4000;
-const CHATS3_URL = "https://chat.kasroad.com";
+const CHATS3_URL = process.env.CHATS3_URL || "http://localhost:3000";
 const INTEGRATOR_ID = "test-app";
 const INTEGRATOR_SECRET = "test-secret-123";
 
@@ -128,11 +128,17 @@ const server = http.createServer((req, res) => {
           <button class="btn-clear" onclick="clearAll()">🗑️ Clear All</button>
         </div>
 
+        <div class="controls">
+          <input type="text" id="systemMessageInput" placeholder="Type a system message..." style="flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px;">
+          <button class="btn-preset" onclick="sendSystemMessage()">📢 Send System Message</button>
+        </div>
+
         <div class="instructions">
           <strong>Testing Guide:</strong> 
           Add peers using the buttons above. Each peer gets a unique user ID and session.
           Send messages between peers, start calls with 📞, and observe "Connected (P2P)" status.
           Test reconnection by refreshing individual iframes (right-click → Reload Frame).
+          <br><strong>System Messages:</strong> Type a message in the input box and click "Send System Message" to broadcast a system message to all peers.
         </div>
 
         <div class="chat-grid" id="chatGrid">
@@ -249,6 +255,62 @@ const server = http.createServer((req, res) => {
             clearAll();
             for (let i = 0; i < count; i++) {
               await addPeer();
+            }
+          }
+          
+          async function sendSystemMessage() {
+            const input = document.getElementById('systemMessageInput');
+            const body = input.value.trim();
+            if (!body) {
+              alert('Please enter a message');
+              return;
+            }
+            
+            try {
+              const timestamp = new Date().toISOString();
+              const payload = JSON.stringify({
+                integratorId: INTEGRATOR_ID,
+                conversationId: 'test-room',
+                body: body,
+                timestamp: timestamp
+              });
+              
+              const encoder = new TextEncoder();
+              const key = await crypto.subtle.importKey(
+                'raw',
+                encoder.encode(INTEGRATOR_SECRET),
+                { name: 'HMAC', hash: 'SHA-256' },
+                false,
+                ['sign']
+              );
+              const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+              const signatureBase64Url = btoa(String.fromCharCode(...new Uint8Array(signature)))
+                .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+              
+              const response = await fetch(CHATS3_URL + '/api/v1/system-message', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  integratorId: INTEGRATOR_ID,
+                  conversationId: 'test-room',
+                  body: body,
+                  signature: signatureBase64Url,
+                  timestamp: timestamp
+                })
+              });
+              
+              const result = await response.json();
+              if (result.success) {
+                input.value = '';
+                console.log('System message sent:', result);
+              } else {
+                alert('Failed to send system message: ' + result.message);
+              }
+            } catch (error) {
+              console.error('Error sending system message:', error);
+              alert('Error sending system message: ' + error.message);
             }
           }
           

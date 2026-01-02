@@ -79,6 +79,14 @@ const reactionSchema = z.object({
   added: z.boolean(),
 });
 
+const systemMessageSchema = z.object({
+  integratorId: z.string().min(1).max(100),
+  conversationId: z.string().max(100),
+  body: z.string().min(1).max(12000),
+  signature: z.string().min(1),
+  timestamp: z.string().datetime(),
+});
+
 // Remove a user from all emojis on a message
 function removeUserFromAllEmojis(messageReactions, userId) {
   for (const e of Object.keys(messageReactions)) {
@@ -304,6 +312,65 @@ export default async function chatRoutes(fastify) {
     });
 
     return success.parse({ message: "Message saved", details: message });
+  });
+
+  // Send system message (authenticated parent only)
+  fastify.post("/system-message", async (request, reply) => {
+    const { integratorId, conversationId, body, signature, timestamp } =
+      systemMessageSchema.parse(request.body);
+
+    // Verify integrator exists
+    const integrator = integrators.get(integratorId);
+    if (!integrator) {
+      reply.status(403);
+      return fail.parse({ message: "Unknown integrator" });
+    }
+
+    // Verify signature
+    const payload = JSON.stringify({
+      integratorId,
+      conversationId,
+      body,
+      timestamp,
+    });
+    const expectedSignature = crypto
+      .createHmac("sha256", integrator.secret)
+      .update(payload)
+      .digest("base64url");
+
+    if (signature !== expectedSignature) {
+      reply.status(403);
+      return fail.parse({ message: "Invalid signature" });
+    }
+
+    // Check timestamp (must be within 60 seconds)
+    const now = Date.now();
+    const timestampMs = new Date(timestamp).getTime();
+    if (Math.abs(now - timestampMs) > 60000) {
+      reply.status(403);
+      return fail.parse({ message: "Request timestamp too old or in future" });
+    }
+
+    // Save and broadcast system message
+    // Note: We don't verify conversation exists - if there are no active sessions,
+    // the message will be saved but not received until someone joins
+    const message = await saveMessage({
+      conversationId,
+      senderUserId: "system",
+      senderDisplayName: "System",
+      senderRole: "system",
+      type: "system",
+      body: sanitizeMessageBody(body),
+      clientTimestamp: timestamp,
+    });
+
+    addSignalingEvent(conversationId, {
+      type: "new-message",
+      fromUserId: "system",
+      data: message,
+    });
+
+    return success.parse({ message: "System message sent", details: message });
   });
 
   // Get message history
