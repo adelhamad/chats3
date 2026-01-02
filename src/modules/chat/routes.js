@@ -80,10 +80,10 @@ const reactionSchema = z.object({
 });
 
 const systemMessageSchema = z.object({
-  integratorId: z.string(),
+  integratorId: z.string().min(1).max(100),
   conversationId: z.string().max(100),
   body: z.string().min(1).max(1000),
-  signature: z.string(),
+  signature: z.string().min(1),
   timestamp: z.string().datetime(),
 });
 

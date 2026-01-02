@@ -60,7 +60,13 @@ export async function buildApp(opts = {}) {
               .replace("https://*.", "")
               // eslint-disable-next-line sonarjs/no-clear-text-protocols
               .replace("http://*.", "");
-            return origin.includes(baseDomain);
+            // Check if origin ends with the base domain (e.g., example.com)
+            // or is exactly the base domain
+            return (
+              origin === `https://${baseDomain}` ||
+              origin === `http://${baseDomain}` ||
+              origin.endsWith(`.${baseDomain}`)
+            );
           }
           return false;
         })
