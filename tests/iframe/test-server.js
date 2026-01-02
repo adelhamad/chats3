@@ -175,7 +175,7 @@ const server = http.createServer((req, res) => {
             );
             const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(ticket));
             return btoa(String.fromCharCode(...new Uint8Array(signature)))
-              .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+              .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
           }
           
           async function getEmbedUrl(userId, displayName) {
@@ -285,7 +285,7 @@ const server = http.createServer((req, res) => {
               );
               const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
               const signatureBase64Url = btoa(String.fromCharCode(...new Uint8Array(signature)))
-                .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+                .replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
               
               const response = await fetch(CHATS3_URL + '/api/v1/system-message', {
                 method: 'POST',

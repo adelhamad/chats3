@@ -1,7 +1,7 @@
 // System message API tests
+import crypto from "crypto";
 import { strict as assert } from "node:assert";
 import { test, describe, before, after } from "node:test";
-import crypto from "crypto";
 
 import { buildApp } from "../src/app.js";
 
@@ -50,13 +50,13 @@ describe("System Message API", () => {
     });
 
     const result = JSON.parse(response.body);
-    
+
     // S3 operations may fail in test environment
     if (response.statusCode === 400 && result.message?.includes("ENOTFOUND")) {
       console.log("  ℹ  Skipped S3 operation (credentials required)");
       return;
     }
-    
+
     assert.strictEqual(response.statusCode, 200);
     assert.strictEqual(result.success, true);
     assert.strictEqual(result.details.type, "system");
@@ -189,13 +189,13 @@ describe("System Message API", () => {
     });
 
     const result = JSON.parse(response.body);
-    
+
     // S3 operations may fail in test environment
     if (response.statusCode === 400 && result.message?.includes("ENOTFOUND")) {
       console.log("  ℹ  Skipped S3 operation (credentials required)");
       return;
     }
-    
+
     assert.strictEqual(response.statusCode, 200);
     assert.strictEqual(result.success, true);
     assert.strictEqual(result.details.body, "Hello World");
@@ -228,7 +228,7 @@ describe("System Message API", () => {
     const payload = {
       integratorId: INTEGRATOR_ID,
       conversationId: CONVERSATION_ID,
-      body: "x".repeat(1001), // Max is 1000
+      body: "x".repeat(12001), // Max is 12000
       timestamp,
     };
     const signature = generateSignature(payload, INTEGRATOR_SECRET);
@@ -243,5 +243,39 @@ describe("System Message API", () => {
     });
 
     assert.strictEqual(response.statusCode, 400);
+  });
+
+  test("should accept system message with body at max length", async () => {
+    const timestamp = new Date().toISOString();
+    const payload = {
+      integratorId: INTEGRATOR_ID,
+      conversationId: CONVERSATION_ID,
+      body: "x".repeat(12000), // Max is 12000
+      timestamp,
+    };
+    const signature = generateSignature(payload, INTEGRATOR_SECRET);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/v1/system-message",
+      payload: {
+        ...payload,
+        signature,
+      },
+    });
+
+    // S3 operations may fail in test environment
+    if (
+      response.statusCode === 400 &&
+      JSON.parse(response.body).message?.includes("ENOTFOUND")
+    ) {
+      console.log("  ℹ  Skipped S3 operation (credentials required)");
+      return;
+    }
+
+    assert.strictEqual(response.statusCode, 200);
+    const result = JSON.parse(response.body);
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.details.body, "x".repeat(12000));
   });
 });
